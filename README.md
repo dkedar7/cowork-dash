@@ -305,10 +305,8 @@ twine upload dist/*
 - plotly
 - matplotlib
 - Pillow
-
-Optional:
-- deepagents (for DeepAgents integration)
-- python-dotenv (for environment variables)
+- deepagents
+- python-dotenv
 
 ## Troubleshooting
 

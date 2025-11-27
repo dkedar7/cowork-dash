@@ -521,6 +521,7 @@ app.layout = dmc.MantineProvider([
                         placeholder="Type a message...",
                         className="chat-input",
                         debounce=False,
+                        value="",
                         style={
                             "flex": "1", "padding": "10px 16px", "height": "40px",
                             "border": f"1px solid {COLORS['border']}",

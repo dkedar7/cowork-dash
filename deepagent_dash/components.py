@@ -3,7 +3,6 @@
 from datetime import datetime
 from typing import Dict, List
 from dash import html, dcc
-from plotly import graph_objects as go
 
 
 def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: bool = False):
