@@ -168,8 +168,6 @@ else:
     PORT = config.PORT
     HOST = config.HOST
     DEBUG = config.DEBUG
-    agent = None
-    AGENT_ERROR = None
     args = None
 
 # Initialize agent with override support
