@@ -1,0 +1,26 @@
+# AI File Browser - DeepAgents Edition
+# Install with: pip install -r requirements.txt
+
+# Core Framework
+fast-dash>=0.2.8
+dash>=2.14.0
+
+# Choose ONE of these DMC versions:
+# For Dash 2.x: use 0.14.x
+dash-mantine-components>=0.14.4
+
+# For Dash 3.x: use 1.0+ (uncomment below, comment above)
+# dash-mantine-components>=1.0.0
+
+dash-iconify>=0.1.2
+dash-bootstrap-components>=1.5.0
+
+# DeepAgents (includes LangGraph, LangChain)
+deepagents>=0.2.0
+
+# LLM Provider (choose one or more)
+langchain-anthropic>=0.2.0
+# langchain-openai>=0.2.0
+
+# Optional: For enhanced features
+# tavily-python  # For web search capabilities

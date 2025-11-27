@@ -1,0 +1,111 @@
+/* Global Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f8f9fa;
+    color: #202124;
+    line-height: 1.5;
+}
+
+/* Code and Preformatted Text */
+code, pre {
+    font-family: 'IBM Plex Mono', 'Monaco', 'Courier New', monospace;
+    background: #f1f3f4;
+    padding: 2px 6px;
+    borderRadius: 3px;
+    fontSize: 13px;
+}
+
+pre {
+    padding: 12px;
+    overflowX: auto;
+    borderRadius: 6px;
+    border: 1px solid #e8eaed;
+}
+
+/* DataFrames */
+.dataframe-table {
+    width: 100%;
+    borderCollapse: collapse;
+    fontSize: 13px;
+}
+
+.dataframe-table th {
+    background: #f8f9fa;
+    fontWeight: 600;
+    padding: 8px 12px;
+    textAlign: left;
+    borderBottom: 2px solid #e8eaed;
+}
+
+.dataframe-table td {
+    padding: 8px 12px;
+    borderBottom: 1px solid #e8eaed;
+}
+
+/* Collapsible Details */
+details {
+    background: #f8f9fa;
+    border: 1px solid #e8eaed;
+    borderRadius: 4px;
+    padding: 8px;
+    marginBottom: 8px;
+}
+
+summary {
+    cursor: pointer;
+    fontWeight: 500;
+    padding: 4px;
+    position: relative;
+    paddingLeft: 20px;
+}
+
+summary::before {
+    content: '▶';
+    position: absolute;
+    left: 4px;
+    transition: transform 0.2s;
+    fontSize: 9px;
+}
+
+details[open] summary::before {
+    transform: rotate(90deg);
+}
+
+details summary:hover {
+    background: #e8eaed !important;
+}
+
+/* Resize Handle */
+.resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.2s;
+    position: relative;
+}
+
+.resize-handle:hover {
+    background: #1a73e8;
+}
+
+.resize-handle:active {
+    background: #1557b0;
+}
+
+/* Mermaid Diagrams */
+.mermaid-diagram {
+    max-height: 80vh;
+    overflow: auto;
+}
+
+.mermaid-diagram svg {
+    max-width: 100%;
+    height: auto;
+    max-height: 80vh;
+}
