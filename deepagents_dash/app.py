@@ -1148,23 +1148,150 @@ def clear_canvas(n_clicks):
 
 
 # =============================================================================
-# MAIN
+# PROGRAMMATIC API
 # =============================================================================
 
-if __name__ == "__main__":
+def run_app(
+    workspace=None,
+    agent_spec=None,
+    port=None,
+    host=None,
+    debug=None,
+    title=None,
+    config_file=None
+):
+    """
+    Run DeepAgents Dash programmatically.
+
+    This function can be called from Python code or used as the entry point
+    for the CLI. It handles configuration loading and overrides.
+
+    Args:
+        workspace (str, optional): Workspace directory path
+        agent_spec (str, optional): Agent specification as "path:object"
+        port (int, optional): Port number
+        host (str, optional): Host to bind to
+        debug (bool, optional): Debug mode
+        title (str, optional): Application title
+        config_file (str, optional): Path to config file (default: ./config.py)
+
+    Returns:
+        int: Exit code (0 for success, non-zero for error)
+
+    Example:
+        >>> from deepagents_dash import run_app
+        >>> run_app(workspace="~/my-workspace", port=8080, debug=True)
+    """
+    global WORKSPACE_ROOT, APP_TITLE, PORT, HOST, DEBUG, agent, AGENT_ERROR, args
+
+    # Load config file if specified and exists
+    config_module = None
+    if config_file:
+        config_path = Path(config_file).resolve()
+        if config_path.exists():
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("user_config", config_path)
+            if spec and spec.loader:
+                config_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(config_module)
+                print(f"✓ Loaded config from {config_path}")
+        else:
+            print(f"⚠️  Config file not found: {config_path}, using defaults")
+
+    # Apply configuration with overrides
+    if config_module:
+        # Use config file values as base
+        WORKSPACE_ROOT = Path(workspace).resolve() if workspace else getattr(config_module, "WORKSPACE_ROOT", config.WORKSPACE_ROOT)
+        APP_TITLE = title if title else getattr(config_module, "APP_TITLE", config.APP_TITLE)
+        PORT = port if port is not None else getattr(config_module, "PORT", config.PORT)
+        HOST = host if host else getattr(config_module, "HOST", config.HOST)
+        DEBUG = debug if debug is not None else getattr(config_module, "DEBUG", config.DEBUG)
+
+        # Get agent from config file if not specified via CLI
+        if not agent_spec:
+            get_agent_func = getattr(config_module, "get_agent", None)
+            if get_agent_func:
+                result = get_agent_func()
+                if isinstance(result, tuple):
+                    agent, AGENT_ERROR = result
+                else:
+                    agent = result
+                    AGENT_ERROR = None
+            else:
+                agent = None
+                AGENT_ERROR = "No get_agent() function in config file"
+        else:
+            # Load agent from CLI spec
+            agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
+    else:
+        # No config file, use CLI args or defaults
+        WORKSPACE_ROOT = Path(workspace).resolve() if workspace else config.WORKSPACE_ROOT
+        APP_TITLE = title if title else config.APP_TITLE
+        PORT = port if port is not None else config.PORT
+        HOST = host if host else config.HOST
+        DEBUG = debug if debug is not None else config.DEBUG
+
+        if agent_spec:
+            agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
+        else:
+            # Use default config agent
+            result = config.get_agent()
+            if isinstance(result, tuple):
+                agent, AGENT_ERROR = result
+            else:
+                agent = result
+                AGENT_ERROR = None
+
+    # Ensure workspace exists
+    WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
+
+    # Update global state to use the configured workspace
+    global _agent_state
+    _agent_state["canvas"] = load_canvas_from_markdown(WORKSPACE_ROOT)
+
+    # Create a mock args object for compatibility with existing code
+    class Args:
+        pass
+    args = Args()
+    args.workspace = workspace
+    args.agent = agent_spec
+
+    # Print startup banner
     print("\n" + "="*50)
     print(f"  {APP_TITLE}")
     print("="*50)
     print(f"  Workspace: {WORKSPACE_ROOT}")
-    if args.workspace:
-        print(f"    (from CLI: --workspace {args.workspace})")
+    if workspace:
+        print(f"    (from CLI: --workspace {workspace})")
     print(f"  Agent: {'Ready' if agent else 'Not available'}")
-    if args.agent:
-        print(f"    (from CLI: --agent {args.agent})")
+    if agent_spec:
+        print(f"    (from CLI: --agent {agent_spec})")
     if AGENT_ERROR:
         print(f"    Error: {AGENT_ERROR}")
     print(f"  URL: http://{HOST}:{PORT}")
     print(f"  Debug: {DEBUG}")
     print("="*50 + "\n")
 
-    app.run(debug=DEBUG, host=HOST, port=PORT)
+    # Run the app
+    try:
+        app.run(debug=DEBUG, host=HOST, port=PORT)
+        return 0
+    except Exception as e:
+        print(f"\n❌ Error running app: {e}")
+        return 1
+
+
+# =============================================================================
+# MAIN - BACKWARDS COMPATIBILITY
+# =============================================================================
+
+if __name__ == "__main__":
+    # When run directly (not as package), use original CLI arg parsing
+    sys.exit(run_app(
+        workspace=args.workspace if args.workspace else None,
+        agent_spec=args.agent if args.agent else None,
+        port=args.port if args.port else None,
+        host=args.host if args.host else None,
+        debug=args.debug if args.debug else (not args.no_debug if args.no_debug else None),
+        title=args.title if args.title else None
+    ))

@@ -1,4 +1,4 @@
-# FastDash Browser
+# DeepAgents Dash
 
 A modular Dash application providing a web interface for AI agent interactions with filesystem workspace, canvas visualization, and real-time streaming.
 
@@ -10,146 +10,203 @@ A modular Dash application providing a web interface for AI agent interactions w
 - 🔄 **Real-time Updates**: Live agent thinking and task progress
 - 📊 **Rich Visualizations**: Support for Matplotlib, Plotly, Mermaid diagrams
 - 🎛️ **Resizable Panels**: Adjustable split view
+- ⚙️ **Flexible Configuration**: config.py or command-line arguments
+- 📦 **Easy Distribution**: pip-installable package
 
 ## Quick Start
 
 ### Installation
 
+**Option 1: Install from PyPI** (recommended)
 ```bash
-# Clone or download the repository
-git clone <your-repo-url>
-cd fastdash-browser
-
-# Install dependencies
-pip install -r requirements.txt
+pip install deepagents-dash
 ```
 
-### Configuration
+**Option 2: Install from source**
+```bash
+git clone https://github.com/yourusername/deepagents-dash.git
+cd deepagents-dash
+pip install -e .
+```
 
-Edit `config.py` to customize your setup:
+### Initialize a Project
+
+```bash
+# Create a new project
+deepagents-dash init my-agent-project
+
+# Navigate to project
+cd my-agent-project
+
+# Set up environment (if using DeepAgents)
+cp .env.example .env
+# Edit .env and add your ANTHROPIC_API_KEY
+
+# Edit config.py to customize your agent
+
+# Run the application
+deepagents-dash run
+```
+
+Then open your browser to `http://127.0.0.1:8050`
+
+### Quick Run (without project)
+
+```bash
+# Run with defaults
+deepagents-dash run
+
+# Run with custom settings
+deepagents-dash run --workspace ~/my-workspace --port 8080
+
+# Run with custom agent
+deepagents-dash run --agent my_agent.py:agent --debug
+```
+
+## Usage
+
+### Command-Line Interface
+
+```bash
+# Initialize new project
+deepagents-dash init my-project
+
+# Run application
+deepagents-dash run [OPTIONS]
+
+Options:
+  --workspace PATH        Workspace directory path
+  --agent PATH:OBJECT     Agent specification (e.g., "agent.py:agent")
+  --port PORT            Port to run on (default: 8050)
+  --host HOST            Host to bind to (default: 127.0.0.1)
+  --debug                Enable debug mode
+  --no-debug             Disable debug mode
+  --title TITLE          Application title
+  --config PATH          Config file path (default: ./config.py)
+  --help                 Show help message
+
+# Examples
+deepagents-dash run --workspace ~/projects --port 8080 --debug
+deepagents-dash run --agent custom_agent.py:my_agent
+```
+
+> 💡 See [docs/CLI_USAGE.md](docs/CLI_USAGE.md) for detailed command-line documentation
+
+### Python API
+
+```python
+from deepagents_dash import run_app
+
+# Run with defaults
+run_app()
+
+# Run with custom configuration
+run_app(
+    workspace="~/my-workspace",
+    port=8080,
+    debug=True
+)
+
+# Run with custom agent
+run_app(
+    agent_spec="my_agent.py:custom_agent",
+    workspace="~/projects"
+)
+```
+
+### Configuration File
+
+When you run `deepagents-dash init`, a `config.py` file is created:
 
 ```python
 from pathlib import Path
 
 # Set your workspace directory
-WORKSPACE_ROOT = Path("~/my-workspace").expanduser()
+WORKSPACE_ROOT = Path("./workspace").resolve()
 
 # Configure your agent
 def get_agent():
     from deepagents import create_deep_agent
-    from canvas_utils import add_to_canvas
+    from deepagents.backends import FilesystemBackend
 
-    # Wrapper to pass workspace_root automatically
-    def _add_to_canvas_tool(content):
-        return add_to_canvas(content, WORKSPACE_ROOT)
-
+    backend = FilesystemBackend(root_dir=str(WORKSPACE_ROOT), virtual_mode=True)
     agent = create_deep_agent(
         model="anthropic:claude-sonnet-4-20250514",
         system_prompt="Your custom system prompt here",
-        tools=[_add_to_canvas_tool]
+        backend=backend
     )
     return agent, None
 
 # UI Configuration
-APP_TITLE = "My AI Assistant"
+APP_TITLE = "DeepAgents Dash"
 PORT = 8050
 HOST = "127.0.0.1"
 DEBUG = False
 ```
 
-### Running
-
-**Option 1: Use defaults from config.py**
-```bash
-python app.py
-```
-
-**Option 2: Override with command-line arguments**
-```bash
-# Use custom workspace and port
-python app.py --workspace ~/my-workspace --port 8080
-
-# Use different agent
-python app.py --agent my_agent.py:agent
-
-# Enable debug mode
-python app.py --debug
-
-# See all options
-python app.py --help
-```
-
-Then open your browser to `http://127.0.0.1:8050` (or your specified port)
-
-> 💡 See [CLI_USAGE.md](CLI_USAGE.md) for detailed command-line documentation
-
 ## Project Structure
 
+### Installed Package
+
 ```
-fastdash-browser/
-├── app.py                 # Main application (DO NOT MODIFY)
-├── config.py             # User configuration (MODIFY THIS)
-├── canvas_utils.py       # Canvas parsing and persistence
-├── file_utils.py         # File tree and I/O operations
-├── components.py         # UI component rendering
-├── assets/
-│   ├── app.js           # JavaScript (resize, Mermaid)
-│   └── styles.css       # CSS styling
-├── templates/
-│   └── index.html       # HTML template
-└── .canvas/             # Canvas assets (auto-generated)
+deepagents-dash/
+├── pyproject.toml         # Package configuration
+├── README.md              # This file
+├── LICENSE                # MIT License
+├── deepagents_dash/       # Main package
+│   ├── __init__.py       # Package exports
+│   ├── __main__.py       # python -m deepagents_dash
+│   ├── cli.py            # Command-line interface
+│   ├── app.py            # Main application
+│   ├── canvas_utils.py   # Canvas functionality
+│   ├── file_utils.py     # File operations
+│   ├── components.py     # UI components
+│   ├── config_template.py # Template for init
+│   ├── assets/           # CSS, JavaScript
+│   └── templates/        # HTML templates
+├── examples/             # Example agents
+└── docs/                 # Documentation
 ```
 
-## Usage
+### Created Project (after `deepagents-dash init`)
 
-### Chat with Agent
+```
+my-project/
+├── config.py             # Your configuration (edit this)
+├── workspace/            # Your agent's workspace
+├── .env.example          # Environment variables template
+├── .env                  # Your environment variables (create this)
+├── .gitignore           # Git ignore patterns
+└── README.md            # Project README
+```
 
-Type your message in the chat input and press Enter or click Send. The agent will:
-- Stream responses in real-time
-- Show thinking process (expandable)
-- Display task progress
-- Update the canvas with visualizations
+## Agent Integration
 
-### File Browser
-
-- **Browse**: Click folders to expand/collapse
-- **View**: Click files to view content
-- **Download**: Click download icon next to files
-- **Upload**: Use the upload area to add files
-
-### Canvas
-
-The canvas displays visualizations created by the agent:
-- **DataFrames**: Interactive tables
-- **Charts**: Matplotlib and Plotly visualizations
-- **Images**: PNG, JPG, etc.
-- **Diagrams**: Mermaid flowcharts, sequence diagrams, etc.
-- **Markdown**: Formatted text and notes
-
-Canvas content is automatically saved to `canvas.md` and can be:
-- Exported to markdown
-- Downloaded as a file
-- Cleared for a fresh start
-
-### Keyboard Shortcuts
-
-- `Enter`: Send message (in chat input)
-- `Shift + Enter`: New line (in chat input)
-
-## Customization
-
-### Adding Custom Agent
-
-Implement your agent in `config.py`:
+### Using DeepAgents
 
 ```python
+# In your config.py
+def get_agent():
+    from deepagents import create_deep_agent
+    from deepagents.backends import FilesystemBackend
+
+    backend = FilesystemBackend(root_dir=str(WORKSPACE_ROOT), virtual_mode=True)
+    agent = create_deep_agent(
+        model="anthropic:claude-sonnet-4-20250514",
+        system_prompt="Your prompt here",
+        backend=backend
+    )
+    return agent, None
+```
+
+### Custom Agent
+
+```python
+# In your config.py
 def get_agent():
     from my_agent_library import MyAgent
 
-    agent = MyAgent(
-        workspace=str(WORKSPACE_ROOT),
-        # your configuration
-    )
+    agent = MyAgent(workspace=str(WORKSPACE_ROOT))
     return agent, None
 ```
 
@@ -157,168 +214,141 @@ Your agent must support:
 - Streaming: `agent.stream(input, stream_mode="updates")`
 - Message format: `{"messages": [{"role": "user", "content": "..."}]}`
 
-### Canvas Integration
+### Agent Specification Format
 
-To enable canvas in your agent, provide the `add_to_canvas` tool:
+Load agents from any Python file using the `path:object` pattern:
 
-```python
-from canvas_utils import add_to_canvas
+```bash
+# Load 'agent' from agent.py
+deepagents-dash run --agent agent.py:agent
 
-def get_agent():
-    # Create wrapper that automatically passes WORKSPACE_ROOT
-    def _add_to_canvas_tool(content):
-        return add_to_canvas(content, WORKSPACE_ROOT)
+# Load 'custom_agent' from my_agents.py
+deepagents-dash run --agent my_agents.py:custom_agent
 
-    # Pass tool to your agent
-    agent = create_agent(tools=[_add_to_canvas_tool])
-    return agent, None
+# Absolute path
+deepagents-dash run --agent /path/to/agents.py:prod_agent
 ```
 
-The tool supports:
-- Pandas DataFrames
-- Matplotlib figures
-- Plotly charts
-- PIL Images
-- Markdown strings
-- Mermaid diagram code
+See [examples/example_agent.py](examples/example_agent.py) for examples.
 
-### Styling
+## Features
 
-Edit `assets/styles.css` to customize appearance:
+### Chat Interface
 
-```css
-/* Change accent color */
-:root {
-    --accent: #1a73e8;  /* Change this */
-}
+- Real-time streaming responses
+- Thinking process display (expandable)
+- Task progress tracking
+- Message history
+
+### File Browser
+
+- Interactive file tree with collapsible folders
+- File upload and download
+- View text files in modal
+- Download any file
+
+### Canvas
+
+The canvas displays visualizations created by the agent:
+
+- **DataFrames**: Interactive HTML tables
+- **Charts**: Matplotlib and Plotly visualizations
+- **Images**: PNG, JPG, etc.
+- **Diagrams**: Mermaid flowcharts, sequence diagrams, etc.
+- **Markdown**: Formatted text and notes
+
+Canvas content auto-saves to `canvas.md` and can be:
+- Exported to markdown
+- Downloaded as a file
+- Cleared for a fresh start
+
+## Development
+
+### Install for Development
+
+```bash
+git clone https://github.com/yourusername/deepagents-dash.git
+cd deepagents-dash
+pip install -e ".[dev]"
 ```
 
-### UI Layout
+### Run Tests
 
-Modify the layout in `app.py` if you need structural changes (though try to keep core logic intact).
+```bash
+pytest
+```
 
-## Architecture
+### Build Package
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation on:
-- Module responsibilities
-- Configuration workflow
-- Agent integration
-- Canvas persistence strategy
-- Performance considerations
-- Extension points
+```bash
+python -m build
+```
 
-## Canvas Persistence
+### Publish to PyPI
 
-Canvas content is saved to `canvas.md` with a hybrid approach:
+```bash
+twine upload dist/*
+```
 
-### Inline Content
-Lightweight items stored directly in markdown:
-- Markdown text
-- DataFrames (as HTML)
-- Mermaid diagrams
+## Documentation
 
-### External Assets
-Heavy items saved to `.canvas/` folder:
-- Matplotlib/PIL images → `.canvas/matplotlib_timestamp.png`
-- Plotly charts → `.canvas/plotly_timestamp.json`
-
-This keeps `canvas.md` readable while handling large visualizations efficiently.
-
-## Troubleshooting
-
-### Agent Not Working
-
-Check `config.py`:
-- Is `ANTHROPIC_API_KEY` set in environment or `.env` file?
-- Is DeepAgents installed? (`pip install deepagents`)
-- Does `get_agent()` return the correct format `(agent, error_message)`?
-
-### Canvas Not Updating
-
-- Check browser console for JavaScript errors
-- Verify Mermaid.js CDN is accessible
-- Check `.canvas/` folder permissions
-
-### File Browser Issues
-
-- Verify `WORKSPACE_ROOT` path exists
-- Check file permissions
-- Ensure workspace is not a symbolic link (or adjust code)
-
-### Resize Not Working
-
-- Check that `assets/app.js` is loaded (view source)
-- Verify browser console for errors
-- Try refreshing the page
+- [CLI Usage Guide](docs/CLI_USAGE.md) - Detailed command-line documentation
+- [Architecture](docs/ARCHITECTURE.md) - Technical architecture details
+- [Examples](examples/) - Example agent configurations
 
 ## Requirements
 
 - Python 3.8+
 - Dash 2.0+
 - dash-mantine-components
-- pandas (for DataFrames)
-- plotly (for charts)
-- matplotlib (for plots)
-- PIL/Pillow (for images)
+- pandas
+- plotly
+- matplotlib
+- Pillow
 
 Optional:
-- deepagents (if using DeepAgents)
+- deepagents (for DeepAgents integration)
 - python-dotenv (for environment variables)
 
-## Development
+## Troubleshooting
 
-### Running in Debug Mode
+### Agent Not Working
 
-Set in `config.py`:
-```python
-DEBUG = True
+Check your `config.py`:
+- Is `ANTHROPIC_API_KEY` set in `.env` file?
+- Is DeepAgents installed? (`pip install deepagents`)
+- Does `get_agent()` return `(agent, error_message)` format?
+
+### Canvas Not Updating
+
+- Check browser console for errors
+- Verify Mermaid.js CDN is accessible
+- Check `.canvas/` folder permissions
+
+### Import Errors
+
+```bash
+# Reinstall package
+pip uninstall deepagents-dash
+pip install deepagents-dash
+
+# Or for development
+pip install -e .
 ```
-
-This enables:
-- Auto-reload on code changes
-- Detailed error messages
-- Dash debug menu
-
-### Adding New Canvas Types
-
-Edit `canvas_utils.py` → `parse_canvas_object()`:
-
-```python
-def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
-    # Add your type check
-    if isinstance(obj, MyCustomType):
-        return {
-            "type": "my_custom_type",
-            "data": obj.to_dict(),
-            "timestamp": datetime.now().isoformat()
-        }
-    # ... existing code
-```
-
-Then add rendering in `components.py` → `render_canvas_items()`:
-
-```python
-elif item_type == "my_custom_type":
-    # Your rendering code
-    rendered_items.append(
-        html.Div([...])
-    )
-```
-
-## License
-
-[Your License Here]
 
 ## Contributing
 
-[Your Contributing Guidelines Here]
+Contributions are welcome! Please:
 
-## Support
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-For issues and questions:
-- Check [ARCHITECTURE.md](ARCHITECTURE.md) for detailed docs
-- Review `config.py` examples
-- Check browser console and terminal for errors
+## License
+
+MIT License - see [LICENSE](LICENSE) for details
 
 ## Acknowledgments
 
@@ -327,3 +357,10 @@ Built with:
 - [Plotly](https://plotly.com/) - Interactive charts
 - [Mermaid.js](https://mermaid.js.org/) - Diagrams
 - [DeepAgents](https://github.com/langchain-ai/deepagents) - AI agent framework (optional)
+
+## Links
+
+- **Homepage**: https://github.com/yourusername/deepagents-dash
+- **Documentation**: https://github.com/yourusername/deepagents-dash/blob/main/README.md
+- **PyPI**: https://pypi.org/project/deepagents-dash/
+- **Issues**: https://github.com/yourusername/deepagents-dash/issues
