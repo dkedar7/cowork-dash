@@ -1,5 +1,5 @@
 """
-Configuration file for DeepAgents Dash.
+Configuration file for DeepAgent Dash.
 
 Users should modify this file to customize their setup:
 - Set WORKSPACE_ROOT to their desired working directory
@@ -105,7 +105,7 @@ The workspace is your sandbox - feel free to create files, organize content, and
 # =============================================================================
 
 # Application title
-APP_TITLE = "DeepAgents Dash"
+APP_TITLE = "DeepAgent Dash"
 
 # Port to run the server on
 PORT = 8050

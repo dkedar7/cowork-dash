@@ -3,16 +3,16 @@ requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deepagents-dash"
+name = "deepagent-dash"
 version = "0.1.0"
 description = "AI Agent Web Interface with Filesystem and Canvas Visualization"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your@email.com"}
+    {name = "Kedar Dabhadkar", email = "kedar.dabhadkar@gmail.com"}
 ]
-keywords = ["ai", "agent", "dashboard", "visualization", "deepagents", "dash", "plotly"]
+keywords = ["ai", "agent", "dashboard", "visualization", "deepagent", "dash", "plotly"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -51,23 +51,23 @@ dev = [
 ]
 
 all = [
-    "deepagents-dash[deepagents,dev]",
+    "deepagent-dash[deepagents,dev]",
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/deepagents-dash"
-Documentation = "https://github.com/yourusername/deepagents-dash/blob/main/README.md"
-Repository = "https://github.com/yourusername/deepagents-dash"
-"Bug Tracker" = "https://github.com/yourusername/deepagents-dash/issues"
+Homepage = "https://github.com/dkedar7/deepagent-dash"
+Documentation = "https://github.com/dkedar7/deepagent-dash/blob/main/README.md"
+Repository = "https://github.com/dkedar7/deepagent-dash"
+"Bug Tracker" = "https://github.com/dkedar7/deepagent-dash/issues"
 
 [project.scripts]
-deepagents-dash = "deepagents_dash.cli:main"
+deepagent-dash = "deepagent_dash.cli:main"
 
 [tool.setuptools]
-packages = ["deepagents_dash"]
+packages = ["deepagent_dash"]
 
 [tool.setuptools.package-data]
-deepagents_dash = [
+deepagent_dash = [
     "assets/*",
     "templates/*",
     "config_template.py",

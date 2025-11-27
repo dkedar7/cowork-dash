@@ -1,4 +1,4 @@
-# DeepAgents Dash
+# DeepAgent Dash
 
 A modular Dash application providing a web interface for AI agent interactions with filesystem workspace, canvas visualization, and real-time streaming.
 
@@ -19,13 +19,13 @@ A modular Dash application providing a web interface for AI agent interactions w
 
 **Option 1: Install from PyPI** (recommended)
 ```bash
-pip install deepagents-dash
+pip install deepagent-dash
 ```
 
 **Option 2: Install from source**
 ```bash
-git clone https://github.com/yourusername/deepagents-dash.git
-cd deepagents-dash
+git clone https://github.com/dkedar7/deepagent-dash.git
+cd deepagent-dash
 pip install -e .
 ```
 
@@ -33,7 +33,7 @@ pip install -e .
 
 ```bash
 # Create a new project
-deepagents-dash init my-agent-project
+deepagent-dash init my-agent-project
 
 # Navigate to project
 cd my-agent-project
@@ -45,7 +45,7 @@ cp .env.example .env
 # Edit config.py to customize your agent
 
 # Run the application
-deepagents-dash run
+deepagent-dash run
 ```
 
 Then open your browser to `http://127.0.0.1:8050`
@@ -54,13 +54,13 @@ Then open your browser to `http://127.0.0.1:8050`
 
 ```bash
 # Run with defaults
-deepagents-dash run
+deepagent-dash run
 
 # Run with custom settings
-deepagents-dash run --workspace ~/my-workspace --port 8080
+deepagent-dash run --workspace ~/my-workspace --port 8080
 
 # Run with custom agent
-deepagents-dash run --agent my_agent.py:agent --debug
+deepagent-dash run --agent my_agent.py:agent --debug
 ```
 
 ## Usage
@@ -69,10 +69,10 @@ deepagents-dash run --agent my_agent.py:agent --debug
 
 ```bash
 # Initialize new project
-deepagents-dash init my-project
+deepagent-dash init my-project
 
 # Run application
-deepagents-dash run [OPTIONS]
+deepagent-dash run [OPTIONS]
 
 Options:
   --workspace PATH        Workspace directory path
@@ -86,8 +86,8 @@ Options:
   --help                 Show help message
 
 # Examples
-deepagents-dash run --workspace ~/projects --port 8080 --debug
-deepagents-dash run --agent custom_agent.py:my_agent
+deepagent-dash run --workspace ~/projects --port 8080 --debug
+deepagent-dash run --agent custom_agent.py:my_agent
 ```
 
 > 💡 See [docs/CLI_USAGE.md](docs/CLI_USAGE.md) for detailed command-line documentation
@@ -95,7 +95,7 @@ deepagents-dash run --agent custom_agent.py:my_agent
 ### Python API
 
 ```python
-from deepagents_dash import run_app
+from deepagent_dash import run_app
 
 # Run with defaults
 run_app()
@@ -116,7 +116,7 @@ run_app(
 
 ### Configuration File
 
-When you run `deepagents-dash init`, a `config.py` file is created:
+When you run `deepagent-dash init`, a `config.py` file is created:
 
 ```python
 from pathlib import Path
@@ -138,7 +138,7 @@ def get_agent():
     return agent, None
 
 # UI Configuration
-APP_TITLE = "DeepAgents Dash"
+APP_TITLE = "DeepAgent Dash"
 PORT = 8050
 HOST = "127.0.0.1"
 DEBUG = False
@@ -149,13 +149,13 @@ DEBUG = False
 ### Installed Package
 
 ```
-deepagents-dash/
+deepagent-dash/
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
 ├── LICENSE                # MIT License
-├── deepagents_dash/       # Main package
+├── deepagent_dash/       # Main package
 │   ├── __init__.py       # Package exports
-│   ├── __main__.py       # python -m deepagents_dash
+│   ├── __main__.py       # python -m deepagent_dash
 │   ├── cli.py            # Command-line interface
 │   ├── app.py            # Main application
 │   ├── canvas_utils.py   # Canvas functionality
@@ -168,7 +168,7 @@ deepagents-dash/
 └── docs/                 # Documentation
 ```
 
-### Created Project (after `deepagents-dash init`)
+### Created Project (after `deepagent-dash init`)
 
 ```
 my-project/
@@ -220,13 +220,13 @@ Load agents from any Python file using the `path:object` pattern:
 
 ```bash
 # Load 'agent' from agent.py
-deepagents-dash run --agent agent.py:agent
+deepagent-dash run --agent agent.py:agent
 
 # Load 'custom_agent' from my_agents.py
-deepagents-dash run --agent my_agents.py:custom_agent
+deepagent-dash run --agent my_agents.py:custom_agent
 
 # Absolute path
-deepagents-dash run --agent /path/to/agents.py:prod_agent
+deepagent-dash run --agent /path/to/agents.py:prod_agent
 ```
 
 See [examples/example_agent.py](examples/example_agent.py) for examples.
@@ -267,8 +267,8 @@ Canvas content auto-saves to `canvas.md` and can be:
 ### Install for Development
 
 ```bash
-git clone https://github.com/yourusername/deepagents-dash.git
-cd deepagents-dash
+git clone https://github.com/dkedar7/deepagent-dash.git
+cd deepagent-dash
 pip install -e ".[dev]"
 ```
 
@@ -329,8 +329,8 @@ Check your `config.py`:
 
 ```bash
 # Reinstall package
-pip uninstall deepagents-dash
-pip install deepagents-dash
+pip uninstall deepagent-dash
+pip install deepagent-dash
 
 # Or for development
 pip install -e .
@@ -360,7 +360,7 @@ Built with:
 
 ## Links
 
-- **Homepage**: https://github.com/yourusername/deepagents-dash
-- **Documentation**: https://github.com/yourusername/deepagents-dash/blob/main/README.md
-- **PyPI**: https://pypi.org/project/deepagents-dash/
-- **Issues**: https://github.com/yourusername/deepagents-dash/issues
+- **Homepage**: https://github.com/dkedar7/deepagent-dash
+- **Documentation**: https://github.com/dkedar7/deepagent-dash/blob/main/README.md
+- **PyPI**: https://pypi.org/project/deepagent-dash/
+- **Issues**: https://github.com/dkedar7/deepagent-dash/issues
