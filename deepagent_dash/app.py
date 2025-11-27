@@ -264,6 +264,33 @@ def _run_agent_stream(message: str):
                                         _agent_state["thinking"] = thinking_text
                                         _agent_state["last_update"] = time.time()
 
+                                # Universal artifact handler (LangGraph pattern)
+                                # Check if tool message has an artifact field
+                                elif hasattr(last_msg, 'artifact') and last_msg.artifact is not None:
+                                    # Tool returned an artifact - parse and add to canvas
+                                    artifact = last_msg.artifact
+
+                                    # If artifact is JSON string, parse it first
+                                    if isinstance(artifact, str):
+                                        try:
+                                            artifact = json.loads(artifact)
+                                        except:
+                                            pass  # Keep as string, parse_canvas_object will handle it
+
+                                    # Parse using the utility function (handles DataFrames, images, etc.)
+                                    canvas_item = parse_canvas_object(artifact, WORKSPACE_ROOT)
+
+                                    # Update state immediately - append to canvas
+                                    with _agent_state_lock:
+                                        _agent_state["canvas"].append(canvas_item)
+                                        _agent_state["last_update"] = time.time()
+
+                                        # Also export to markdown file
+                                        try:
+                                            export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
+                                        except Exception as e:
+                                            print(f"Failed to export canvas: {e}")
+
                                 elif last_msg.name == 'write_todos':
                                     content = last_msg.content
                                     todos = []
@@ -288,18 +315,17 @@ def _run_agent_stream(message: str):
 
                                 elif last_msg.name == 'add_to_canvas':
                                     content = last_msg.content
-                                    # Canvas tool returns the parsed canvas object
+
+                                    # Use parse_canvas_object to handle all types properly
+                                    # If content is JSON string, parse it first
                                     if isinstance(content, str):
                                         try:
-                                            parsed = json.loads(content)
-                                            canvas_item = parsed
+                                            content = json.loads(content)
                                         except:
-                                            # If not JSON, treat as markdown
-                                            canvas_item = {"type": "markdown", "data": content}
-                                    elif isinstance(content, dict):
-                                        canvas_item = content
-                                    else:
-                                        canvas_item = {"type": "markdown", "data": str(content)}
+                                            pass  # Keep as string, parse_canvas_object will handle it
+
+                                    # Parse using the utility function (handles DataFrames, images, etc.)
+                                    canvas_item = parse_canvas_object(content, WORKSPACE_ROOT)
 
                                     # Update state immediately - append to canvas
                                     with _agent_state_lock:

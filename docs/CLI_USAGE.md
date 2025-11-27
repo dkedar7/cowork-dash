@@ -220,7 +220,7 @@ When you run the app, you'll see which settings came from CLI:
 
 ```
 ==================================================
-  DeepAgents Dash
+  DeepAgent Dash
 ==================================================
   Workspace: /Users/you/my-workspace
     (from CLI: --workspace ~/my-workspace)
