@@ -1,4 +1,4 @@
-import os
+import uuid
 import sys
 import json
 import base64
@@ -30,6 +30,9 @@ from components import (
 
 # Import configuration defaults
 import config
+
+# Generate thread ID
+thread_id = str(uuid.uuid4())
 
 # Parse command-line arguments early
 def parse_args():
@@ -99,6 +102,18 @@ Examples:
         help="Application title (default: from config.py)"
     )
 
+    parser.add_argument(
+        "--subtitle",
+        type=str,
+        help="Application subtitle (default: from config.py)"
+    )
+
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to configuration file (default: config.py)"
+    )
+
     return parser.parse_args()
 
 def load_agent_from_spec(agent_spec: str):
@@ -147,6 +162,7 @@ args = parse_args()
 # Apply configuration with CLI overrides
 WORKSPACE_ROOT = Path(args.workspace).resolve() if args.workspace else config.WORKSPACE_ROOT
 APP_TITLE = args.title if args.title else config.APP_TITLE
+APP_SUBTITLE = args.subtitle if args.subtitle else config.APP_SUBTITLE
 PORT = args.port if args.port else config.PORT
 HOST = args.host if args.host else config.HOST
 
@@ -168,7 +184,7 @@ if args.agent:
     AGENT_ERROR = agent_error
 else:
     # Use agent from config.py
-    agent, AGENT_ERROR = load_agent_from_spec("agent.py:agent")
+    agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
 
 
 # =============================================================================
@@ -232,7 +248,7 @@ def _run_agent_stream(message: str):
     try:
         agent_input = {"messages": [{"role": "user", "content": message}]}
 
-        for update in agent.stream(agent_input, stream_mode="updates"):
+        for update in agent.stream(agent_input, stream_mode="updates", config=dict(configurable=dict(thread_id=thread_id))):
             if isinstance(update, dict):
                 for _, state_data in update.items():
                     if isinstance(state_data, dict) and "messages" in state_data:
@@ -422,10 +438,10 @@ app.layout = dmc.MantineProvider([
         html.Header([
             html.Div([
                 html.Div([
-                    html.H1("DeepAgents Dash", style={
+                    html.H1(APP_TITLE or "DeepAgent Dash", style={
                         "fontSize": "18px", "fontWeight": "600", "margin": "0",
                     }),
-                    html.Span("AI-Powered Workspace", style={
+                    html.Span(APP_SUBTITLE or "AI-Powered Workspace", style={
                         "fontSize": "12px", "color": COLORS["text_muted"], "marginLeft": "12px",
                     })
                 ], style={"display": "flex", "alignItems": "baseline"}),
@@ -1168,10 +1184,11 @@ def run_app(
     host=None,
     debug=None,
     title=None,
+    subtitle=None,
     config_file=None
 ):
     """
-    Run DeepAgents Dash programmatically.
+    Run DeepAgent Dash programmatically.
 
     This function can be called from Python code or used as the entry point
     for the CLI. It handles configuration loading and overrides.
@@ -1192,7 +1209,7 @@ def run_app(
         >>> from deepagents_dash import run_app
         >>> run_app(workspace="~/my-workspace", port=8080, debug=True)
     """
-    global WORKSPACE_ROOT, APP_TITLE, PORT, HOST, DEBUG, agent, AGENT_ERROR, args
+    global WORKSPACE_ROOT, APP_TITLE, APP_SUBTITLE, PORT, HOST, DEBUG, agent, AGENT_ERROR, args
 
     # Load config file if specified and exists
     config_module = None
@@ -1213,6 +1230,7 @@ def run_app(
         # Use config file values as base
         WORKSPACE_ROOT = Path(workspace).resolve() if workspace else getattr(config_module, "WORKSPACE_ROOT", config.WORKSPACE_ROOT)
         APP_TITLE = title if title else getattr(config_module, "APP_TITLE", config.APP_TITLE)
+        APP_SUBTITLE = subtitle if subtitle else getattr(config_module, "APP_SUBTITLE", config.APP_SUBTITLE)
         PORT = port if port is not None else getattr(config_module, "PORT", config.PORT)
         HOST = host if host else getattr(config_module, "HOST", config.HOST)
         DEBUG = debug if debug is not None else getattr(config_module, "DEBUG", config.DEBUG)
@@ -1237,6 +1255,7 @@ def run_app(
         # No config file, use CLI args or defaults
         WORKSPACE_ROOT = Path(workspace).resolve() if workspace else config.WORKSPACE_ROOT
         APP_TITLE = title if title else config.APP_TITLE
+        APP_SUBTITLE = subtitle if subtitle else config.APP_SUBTITLE
         PORT = port if port is not None else config.PORT
         HOST = host if host else config.HOST
         DEBUG = debug if debug is not None else config.DEBUG
@@ -1245,7 +1264,7 @@ def run_app(
             agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
         else:
             # Use default config agent
-            agent, AGENT_ERROR = load_agent_from_spec("agent.py:agent")
+            agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
 
     # Ensure workspace exists
     WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
@@ -1298,5 +1317,7 @@ if __name__ == "__main__":
         port=args.port if args.port else None,
         host=args.host if args.host else None,
         debug=args.debug if args.debug else (not args.no_debug if args.no_debug else None),
-        title=args.title if args.title else None
+        title=args.title if args.title else None,
+        subtitle=args.subtitle if args.subtitle else None,
+        config_file=args.config if args.config else None
     ))

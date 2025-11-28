@@ -19,10 +19,12 @@ WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
 agent_path = Path(__file__).parent / "agent.py"
 AGENT_SPEC = f"{agent_path}:agent"  # Format: "module_path:variable_name"
 
-# Application title
+# Application title and subtitle (optional)
 APP_TITLE = "DeepAgent Dash"
+APP_SUBTITLE = "AI-Powered Workspace"
 
-# Port to run the server on
+
+# Port to run the server on (optional)
 PORT = 8050
 
 # Host to bind to (use "0.0.0.0" to allow external connections)
