@@ -158,10 +158,10 @@ deepagent-dash/
 │   ├── __main__.py       # python -m deepagent_dash
 │   ├── cli.py            # Command-line interface
 │   ├── app.py            # Main application
-│   ├── canvas_utils.py   # Canvas functionality
+│   ├── canvas.py   # Canvas functionality
 │   ├── file_utils.py     # File operations
 │   ├── components.py     # UI components
-│   ├── config_template.py # Template for init
+│   ├── config.py # Template for init
 │   ├── assets/           # CSS, JavaScript
 │   └── templates/        # HTML templates
 ├── examples/             # Example agents
@@ -298,17 +298,15 @@ twine upload dist/*
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.11+
 - Dash 2.0+
 - dash-mantine-components
 - pandas
 - plotly
 - matplotlib
 - Pillow
-
-Optional:
-- deepagents (for DeepAgents integration)
-- python-dotenv (for environment variables)
+- deepagents
+- python-dotenv
 
 ## Troubleshooting
 

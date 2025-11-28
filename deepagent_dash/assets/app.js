@@ -40,17 +40,20 @@ async function renderMermaid() {
 window.addEventListener('load', renderMermaid);
 
 // Use MutationObserver to detect when canvas content changes
-const observer = new MutationObserver(function(mutations) {
-    renderMermaid();
-});
+// Check if observer already exists to prevent redeclaration errors
+if (typeof window.mermaidObserver === 'undefined') {
+    window.mermaidObserver = new MutationObserver(function(mutations) {
+        renderMermaid();
+    });
 
-// Start observing once the canvas is available
-setTimeout(function() {
-    const canvasContent = document.getElementById('canvas-content');
-    if (canvasContent) {
-        observer.observe(canvasContent, { childList: true, subtree: true });
-    }
-}, 1000);
+    // Start observing once the canvas is available
+    setTimeout(function() {
+        const canvasContent = document.getElementById('canvas-content');
+        if (canvasContent) {
+            window.mermaidObserver.observe(canvasContent, { childList: true, subtree: true });
+        }
+    }, 1000);
+}
 
 // Resizable split pane - improved reliability
 (function initResizablePanes() {

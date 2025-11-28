@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "deepagent-dash"
 version = "0.1.0"
 description = "AI Agent Web Interface with Filesystem and Canvas Visualization"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Kedar Dabhadkar", email = "kdabhadk@gmail.com"}
@@ -18,11 +18,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: User Interfaces",
 ]
@@ -35,13 +34,10 @@ dependencies = [
     "matplotlib>=3.5.0",
     "Pillow>=9.0.0",
     "python-dotenv>=0.19.0",
-]
-
-[project.optional-dependencies]
-deepagents = [
     "deepagents>=0.1.0",
 ]
 
+[project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
@@ -51,7 +47,7 @@ dev = [
 ]
 
 all = [
-    "deepagent-dash[deepagents,dev]",
+    "deepagent-dash[dev]",
 ]
 
 [project.urls]
@@ -63,22 +59,19 @@ Repository = "https://github.com/dkedar7/deepagent-dash"
 [project.scripts]
 deepagent-dash = "deepagent_dash.cli:main"
 
-[tool.setuptools]
+[tool.hatch.build.targets.wheel]
 packages = ["deepagent_dash"]
 
-[tool.setuptools.package-data]
-deepagent_dash = [
-    "assets/*",
-    "templates/*",
-    "config_template.py",
-]
+[tool.hatch.build.targets.wheel.force-include]
+"deepagent_dash/assets" = "deepagent_dash/assets"
+"deepagent_dash/templates" = "deepagent_dash/templates"
 
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311']
+target-version = ['py311', 'py312', 'py313', 'py314']
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

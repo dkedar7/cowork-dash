@@ -91,15 +91,22 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                 )
             )
 
-            # Folder children (hidden by default)
-            if children:
-                components.append(
-                    html.Div(
-                        render_file_tree(children, colors, styles, level + 1, item["path"]),
-                        id={"type": "folder-children", "path": folder_id},
-                        style={"display": "none"}  # Collapsed by default
-                    )
+            # Folder children (hidden by default) - always create even if empty
+            components.append(
+                html.Div(
+                    render_file_tree(children, colors, styles, level + 1, item["path"]) if children else [
+                        html.Div("(empty)", style={
+                            "padding": "8px 12px",
+                            "paddingLeft": f"{32 + (level + 1) * 20}px",
+                            "fontSize": "12px",
+                            "color": colors["text_muted"],
+                            "fontStyle": "italic",
+                        })
+                    ],
+                    id={"type": "folder-children", "path": folder_id},
+                    style={"display": "none"}  # Collapsed by default
                 )
+            )
         else:
             # File item
             components.append(

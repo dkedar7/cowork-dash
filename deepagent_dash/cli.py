@@ -25,7 +25,7 @@ def init_project(name: str, template: str = "default"):
     # Copy config template
     import deepagent_dash
     package_dir = Path(deepagent_dash.__file__).parent
-    template_file = package_dir / "config_template.py"
+    template_file = package_dir / "config.py"
 
     if not template_file.exists():
         print(f"❌ Error: Template not found at {template_file}")
@@ -42,7 +42,7 @@ ANTHROPIC_API_KEY=your_api_key_here
 # Optional: Override config.py settings
 # WORKSPACE_ROOT=./workspace
 # PORT=8050
-# HOST=127.0.0.1
+# HOST=localhost
 # DEBUG=False
 """
     (project_dir / ".env.example").write_text(env_template)
@@ -185,7 +185,7 @@ Examples:
   # Debug mode
   deepagent-dash run --debug
 
-For more help: https://github.com/yourusername/deepagent-dash
+For more help: https://github.com/dkedar7/deepagent-dash
         """
     )
 

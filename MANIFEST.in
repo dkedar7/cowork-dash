@@ -1,0 +1,13 @@
+include README.md
+include LICENSE
+include pyproject.toml
+
+# Include package data
+recursive-include deepagent_dash/assets *
+recursive-include deepagent_dash/templates *
+include deepagent_dash/config.py
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
