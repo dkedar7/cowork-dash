@@ -200,64 +200,114 @@ def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -
     content = markdown_path.read_text()
     canvas_items = []
 
-    # Split by common patterns
-    sections = re.split(r'\n(?=##\s|\!\[|\<table|\`\`\`)', content)
+    # First, extract all code blocks to process them separately
+    code_blocks = []
 
-    for section in sections:
-        section = section.strip()
-        if not section or section.startswith('#'):
-            continue
+    # Find all mermaid blocks
+    for match in re.finditer(r'```mermaid\s*\n(.*?)```', content, re.DOTALL | re.IGNORECASE):
+        start, end = match.span()
+        code_blocks.append({
+            'type': 'mermaid',
+            'start': start,
+            'end': end,
+            'content': match.group(1).strip()
+        })
 
-        # Image references
-        img_match = re.match(r'!\[.*?\]\((.canvas/[^)]+)\)', section)
-        if img_match:
-            file_path = workspace_root / img_match.group(1)
-            if file_path.exists():
-                # Load image and convert to base64
-                with open(file_path, 'rb') as f:
-                    img_base64 = base64.b64encode(f.read()).decode('utf-8')
+    # Find all plotly blocks
+    for match in re.finditer(r'```plotly\s*\n(.canvas/[^\n]+)\n```', content, re.DOTALL):
+        start, end = match.span()
+        code_blocks.append({
+            'type': 'plotly_file',
+            'start': start,
+            'end': end,
+            'content': match.group(1).strip()
+        })
+
+    # Find all image references
+    for match in re.finditer(r'!\[.*?\]\((.canvas/[^)]+)\)', content):
+        start, end = match.span()
+        code_blocks.append({
+            'type': 'image_file',
+            'start': start,
+            'end': end,
+            'content': match.group(1)
+        })
+
+    # Find all HTML tables
+    for match in re.finditer(r'<table.*?</table>', content, re.DOTALL):
+        start, end = match.span()
+        code_blocks.append({
+            'type': 'table',
+            'start': start,
+            'end': end,
+            'content': match.group(0)
+        })
+
+    # Sort blocks by position
+    code_blocks.sort(key=lambda x: x['start'])
+
+    # Process content in order
+    last_pos = 0
+    for block in code_blocks:
+        # Add any markdown content before this block
+        if block['start'] > last_pos:
+            markdown_text = content[last_pos:block['start']].strip()
+            # Clean up metadata lines but keep actual content
+            lines = markdown_text.split('\n')
+            filtered_lines = []
+            for line in lines:
+                # Skip only the exact metadata lines
+                if line.strip() in ['# Canvas Export', ''] or line.strip().startswith('*Generated:'):
+                    continue
+                filtered_lines.append(line)
+
+            cleaned_text = '\n'.join(filtered_lines).strip()
+            if cleaned_text:
                 canvas_items.append({
-                    "type": "image",
-                    "file": img_match.group(1),
-                    "data": img_base64
+                    "type": "markdown",
+                    "data": cleaned_text
                 })
-            continue
 
-        # Plotly file references
-        plotly_match = re.match(r'```plotly\n(.canvas/[^\n]+)\n```', section, re.DOTALL)
-        if plotly_match:
-            file_path = workspace_root / plotly_match.group(1)
+        # Add the block itself
+        if block['type'] == 'mermaid':
+            canvas_items.append({
+                "type": "mermaid",
+                "data": block['content']
+            })
+        elif block['type'] == 'plotly_file':
+            file_path = workspace_root / block['content']
             if file_path.exists():
                 plotly_data = json.loads(file_path.read_text())
                 canvas_items.append({
                     "type": "plotly",
-                    "file": plotly_match.group(1),
+                    "file": block['content'],
                     "data": plotly_data
                 })
-            continue
-
-        # Mermaid diagrams
-        mermaid_match = re.match(r'```mermaid\n(.*?)\n```', section, re.DOTALL)
-        if mermaid_match:
-            canvas_items.append({
-                "type": "mermaid",
-                "data": mermaid_match.group(1).strip()
-            })
-            continue
-
-        # DataFrames (HTML tables)
-        if section.startswith('<table'):
+        elif block['type'] == 'image_file':
+            file_path = workspace_root / block['content']
+            if file_path.exists():
+                with open(file_path, 'rb') as f:
+                    img_base64 = base64.b64encode(f.read()).decode('utf-8')
+                canvas_items.append({
+                    "type": "image",
+                    "file": block['content'],
+                    "data": img_base64
+                })
+        elif block['type'] == 'table':
             canvas_items.append({
                 "type": "dataframe",
-                "html": section
+                "html": block['content']
             })
-            continue
 
-        # Regular markdown
-        if section:
+        last_pos = block['end']
+
+    # Add any remaining markdown after the last block
+    if last_pos < len(content):
+        markdown_text = content[last_pos:].strip()
+        if markdown_text:
             canvas_items.append({
                 "type": "markdown",
-                "data": section
+                "data": markdown_text
             })
 
     return canvas_items

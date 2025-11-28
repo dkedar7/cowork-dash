@@ -1074,10 +1074,11 @@ def toggle_view(files_clicks, canvas_clicks):
 # Canvas content update
 @app.callback(
     Output("canvas-content", "children"),
-    Input("poll-interval", "n_intervals"),
+    [Input("poll-interval", "n_intervals"),
+     Input("view-canvas-btn", "n_clicks")],
     prevent_initial_call=False
 )
-def update_canvas_content(n_intervals):
+def update_canvas_content(n_intervals, canvas_clicks):
     """Update canvas content from agent state."""
     state = get_agent_state()
     canvas_items = state.get("canvas", [])
