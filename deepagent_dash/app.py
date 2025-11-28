@@ -21,21 +21,21 @@ from dash.exceptions import PreventUpdate
 import dash_mantine_components as dmc
 
 # Import custom modules
-from .canvas import parse_canvas_object, export_canvas_to_markdown, load_canvas_from_markdown
-from .file_utils import build_file_tree, render_file_tree, read_file_content, get_file_download_data
-from .components import (
+from canvas import parse_canvas_object, export_canvas_to_markdown, load_canvas_from_markdown
+from file_utils import build_file_tree, render_file_tree, read_file_content, get_file_download_data
+from components import (
     format_message, format_loading, format_thinking, format_todos,
     format_todos_inline, render_canvas_items
 )
 
 # Import configuration defaults
-from . import config
+import config
 
 # Parse command-line arguments early
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="DeepAgent Dash - AI Agent Web Interface",
+        description="FastDash Browser - AI Agent Web Interface",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -141,42 +141,34 @@ def load_agent_from_spec(agent_spec: str):
     except Exception as e:
         return None, f"Failed to load agent from {agent_spec}: {e}"
 
-# Parse CLI arguments only if running directly (not imported by cli.py)
-if __name__ == "__main__":
-    args = parse_args()
+# Parse CLI arguments
+args = parse_args()
 
-    # Apply configuration with CLI overrides
-    WORKSPACE_ROOT = Path(args.workspace).resolve() if args.workspace else config.WORKSPACE_ROOT
-    AGENT_SPEC = args.agent if args.agent else config.AGENT_SPEC
-    APP_TITLE = args.title if args.title else config.APP_TITLE
-    PORT = args.port if args.port else config.PORT
-    HOST = args.host if args.host else config.HOST
+# Apply configuration with CLI overrides
+WORKSPACE_ROOT = Path(args.workspace).resolve() if args.workspace else config.WORKSPACE_ROOT
+APP_TITLE = args.title if args.title else config.APP_TITLE
+PORT = args.port if args.port else config.PORT
+HOST = args.host if args.host else config.HOST
 
-    # Handle debug flag
-    if args.debug:
-        DEBUG = True
-    elif args.no_debug:
-        DEBUG = False
-    else:
-        DEBUG = config.DEBUG
-
+# Handle debug flag
+if args.debug:
+    DEBUG = True
+elif args.no_debug:
+    DEBUG = False
 else:
-    # When imported, use config defaults (will be overridden by run_app())
-    WORKSPACE_ROOT = config.WORKSPACE_ROOT
-    AGENT_SPEC = config.AGENT_SPEC
-    APP_TITLE = config.APP_TITLE
-    PORT = config.PORT
-    HOST = config.HOST
     DEBUG = config.DEBUG
-    args = None
-
-# Initialize agent with override support
-# Load agent from CLI specification
-agent, agent_error = load_agent_from_spec(AGENT_SPEC)
-AGENT_ERROR = agent_error
 
 # Ensure workspace exists
 WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
+
+# Initialize agent with override support
+if args.agent:
+    # Load agent from CLI specification
+    agent, agent_error = load_agent_from_spec(args.agent)
+    AGENT_ERROR = agent_error
+else:
+    # Use agent from config.py
+    agent, AGENT_ERROR = load_agent_from_spec("agent.py:agent")
 
 
 # =============================================================================
@@ -267,33 +259,6 @@ def _run_agent_stream(message: str):
                                         _agent_state["thinking"] = thinking_text
                                         _agent_state["last_update"] = time.time()
 
-                                # Universal artifact handler (LangGraph pattern)
-                                # Check if tool message has an artifact field
-                                elif hasattr(last_msg, 'artifact') and last_msg.artifact is not None:
-                                    # Tool returned an artifact - parse and add to canvas
-                                    artifact = last_msg.artifact
-
-                                    # If artifact is JSON string, parse it first
-                                    if isinstance(artifact, str):
-                                        try:
-                                            artifact = json.loads(artifact)
-                                        except:
-                                            pass  # Keep as string, parse_canvas_object will handle it
-
-                                    # Parse using the utility function (handles DataFrames, images, etc.)
-                                    canvas_item = parse_canvas_object(artifact, WORKSPACE_ROOT)
-
-                                    # Update state immediately - append to canvas
-                                    with _agent_state_lock:
-                                        _agent_state["canvas"].append(canvas_item)
-                                        _agent_state["last_update"] = time.time()
-
-                                        # Also export to markdown file
-                                        try:
-                                            export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
-                                        except Exception as e:
-                                            print(f"Failed to export canvas: {e}")
-
                                 elif last_msg.name == 'write_todos':
                                     content = last_msg.content
                                     todos = []
@@ -318,17 +283,18 @@ def _run_agent_stream(message: str):
 
                                 elif last_msg.name == 'add_to_canvas':
                                     content = last_msg.content
-
-                                    # Use parse_canvas_object to handle all types properly
-                                    # If content is JSON string, parse it first
+                                    # Canvas tool returns the parsed canvas object
                                     if isinstance(content, str):
                                         try:
-                                            content = json.loads(content)
+                                            parsed = json.loads(content)
+                                            canvas_item = parsed
                                         except:
-                                            pass  # Keep as string, parse_canvas_object will handle it
-
-                                    # Parse using the utility function (handles DataFrames, images, etc.)
-                                    canvas_item = parse_canvas_object(content, WORKSPACE_ROOT)
+                                            # If not JSON, treat as markdown
+                                            canvas_item = {"type": "markdown", "data": content}
+                                    elif isinstance(content, dict):
+                                        canvas_item = content
+                                    else:
+                                        canvas_item = {"type": "markdown", "data": str(content)}
 
                                     # Update state immediately - append to canvas
                                     with _agent_state_lock:
@@ -456,7 +422,7 @@ app.layout = dmc.MantineProvider([
         html.Header([
             html.Div([
                 html.Div([
-                    html.H1("DeepAgent Dash", style={
+                    html.H1("DeepAgents Dash", style={
                         "fontSize": "18px", "fontWeight": "600", "margin": "0",
                     }),
                     html.Span("AI-Powered Workspace", style={
@@ -521,7 +487,6 @@ app.layout = dmc.MantineProvider([
                         placeholder="Type a message...",
                         className="chat-input",
                         debounce=False,
-                        value="",
                         style={
                             "flex": "1", "padding": "10px 16px", "height": "40px",
                             "border": f"1px solid {COLORS['border']}",
@@ -765,16 +730,18 @@ def poll_agent_updates(n_intervals, history, pending_message):
     [Output({"type": "folder-children", "path": ALL}, "style"),
      Output({"type": "folder-icon", "path": ALL}, "style")],
     Input({"type": "folder-header", "path": ALL}, "n_clicks"),
-    [State({"type": "folder-children", "path": ALL}, "style"),
+    [State({"type": "folder-children", "path": ALL}, "id"),
+     State({"type": "folder-icon", "path": ALL}, "id"),
+     State({"type": "folder-children", "path": ALL}, "style"),
      State({"type": "folder-icon", "path": ALL}, "style")],
     prevent_initial_call=True
 )
-def toggle_folder(n_clicks, children_styles, icon_styles):
+def toggle_folder(n_clicks, children_ids, icon_ids, children_styles, icon_styles):
     """Toggle folder expansion."""
     ctx = callback_context
     if not ctx.triggered or not any(n_clicks):
         raise PreventUpdate
-    
+
     triggered = ctx.triggered[0]["prop_id"]
     try:
         id_str = triggered.rsplit(".", 1)[0]
@@ -782,34 +749,46 @@ def toggle_folder(n_clicks, children_styles, icon_styles):
         clicked_path = id_dict.get("path")
     except:
         raise PreventUpdate
-    
+
     new_children_styles = []
     new_icon_styles = []
-    
-    # Get all folder paths from pattern-matching IDs
-    all_ids = ctx.inputs_list[0]
-    
-    for i, item in enumerate(all_ids):
-        path = item["id"]["path"]
+
+    # Process all folder-children elements
+    for i, child_id in enumerate(children_ids):
+        path = child_id["path"]
         current_style = children_styles[i] if i < len(children_styles) else {"display": "none"}
-        current_icon_style = icon_styles[i] if i < len(icon_styles) else {}
-        
+
         if path == clicked_path:
             # Toggle this folder
             is_expanded = current_style.get("display") != "none"
             new_children_styles.append({"display": "none" if is_expanded else "block"})
-            new_icon_styles.append({
-                "marginRight": "8px",
-                "fontSize": "10px",
-                "color": COLORS["text_muted"],
-                "transition": "transform 0.2s",
-                "display": "inline-block",
-                "transform": "rotate(0deg)" if is_expanded else "rotate(90deg)",
-            })
         else:
             new_children_styles.append(current_style)
+
+    # Process all folder-icon elements
+    for i, icon_id in enumerate(icon_ids):
+        path = icon_id["path"]
+        current_icon_style = icon_styles[i] if i < len(icon_styles) else {}
+
+        if path == clicked_path:
+            # Find corresponding children style to check if expanded
+            children_idx = next((idx for idx, cid in enumerate(children_ids) if cid["path"] == path), None)
+            if children_idx is not None:
+                current_children_style = children_styles[children_idx] if children_idx < len(children_styles) else {"display": "none"}
+                is_expanded = current_children_style.get("display") != "none"
+                new_icon_styles.append({
+                    "marginRight": "8px",
+                    "fontSize": "10px",
+                    "color": COLORS["text_muted"],
+                    "transition": "transform 0.2s",
+                    "display": "inline-block",
+                    "transform": "rotate(0deg)" if is_expanded else "rotate(90deg)",
+                })
+            else:
+                new_icon_styles.append(current_icon_style)
+        else:
             new_icon_styles.append(current_icon_style)
-    
+
     return new_children_styles, new_icon_styles
 
 
@@ -1191,7 +1170,7 @@ def run_app(
     config_file=None
 ):
     """
-    Run DeepAgent Dash programmatically.
+    Run DeepAgents Dash programmatically.
 
     This function can be called from Python code or used as the entry point
     for the CLI. It handles configuration loading and overrides.
@@ -1212,7 +1191,7 @@ def run_app(
         >>> from deepagents_dash import run_app
         >>> run_app(workspace="~/my-workspace", port=8080, debug=True)
     """
-    global WORKSPACE_ROOT, AGENT_SPEC, APP_TITLE, PORT, HOST, DEBUG, agent, AGENT_ERROR, args
+    global WORKSPACE_ROOT, APP_TITLE, PORT, HOST, DEBUG, agent, AGENT_ERROR, args
 
     # Load config file if specified and exists
     config_module = None
@@ -1232,25 +1211,40 @@ def run_app(
     if config_module:
         # Use config file values as base
         WORKSPACE_ROOT = Path(workspace).resolve() if workspace else getattr(config_module, "WORKSPACE_ROOT", config.WORKSPACE_ROOT)
-        AGENT_SPEC = agent_spec if agent_spec else getattr(config_module, "AGENT_SPEC", None)
         APP_TITLE = title if title else getattr(config_module, "APP_TITLE", config.APP_TITLE)
         PORT = port if port is not None else getattr(config_module, "PORT", config.PORT)
         HOST = host if host else getattr(config_module, "HOST", config.HOST)
         DEBUG = debug if debug is not None else getattr(config_module, "DEBUG", config.DEBUG)
 
         # Get agent from config file if not specified via CLI
-        agent, AGENT_ERROR = load_agent_from_spec(AGENT_SPEC)
-
+        if not agent_spec:
+            get_agent_func = getattr(config_module, "get_agent", None)
+            if get_agent_func:
+                result = get_agent_func()
+                if isinstance(result, tuple):
+                    agent, AGENT_ERROR = result
+                else:
+                    agent = result
+                    AGENT_ERROR = None
+            else:
+                agent = None
+                AGENT_ERROR = "No get_agent() function in config file"
+        else:
+            # Load agent from CLI spec
+            agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
     else:
         # No config file, use CLI args or defaults
         WORKSPACE_ROOT = Path(workspace).resolve() if workspace else config.WORKSPACE_ROOT
-        AGENT_SPEC = agent_spec if agent_spec else config.AGENT_SPEC
         APP_TITLE = title if title else config.APP_TITLE
         PORT = port if port is not None else config.PORT
         HOST = host if host else config.HOST
         DEBUG = debug if debug is not None else config.DEBUG
 
-        agent, AGENT_ERROR = load_agent_from_spec(AGENT_SPEC)
+        if agent_spec:
+            agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
+        else:
+            # Use default config agent
+            agent, AGENT_ERROR = load_agent_from_spec("agent.py:agent")
 
     # Ensure workspace exists
     WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
@@ -1289,3 +1283,19 @@ def run_app(
     except Exception as e:
         print(f"\n❌ Error running app: {e}")
         return 1
+
+
+# =============================================================================
+# MAIN - BACKWARDS COMPATIBILITY
+# =============================================================================
+
+if __name__ == "__main__":
+    # When run directly (not as package), use original CLI arg parsing
+    sys.exit(run_app(
+        workspace=args.workspace if args.workspace else None,
+        agent_spec=args.agent if args.agent else None,
+        port=args.port if args.port else None,
+        host=args.host if args.host else None,
+        debug=args.debug if args.debug else (not args.no_debug if args.no_debug else None),
+        title=args.title if args.title else None
+    ))
