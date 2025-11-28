@@ -404,7 +404,17 @@ with open(Path(__file__).parent / "templates" / "index.html", "r") as f:
 
 app.layout = dmc.MantineProvider([
     # State stores
-    dcc.Store(id="chat-history", data=[]),
+    dcc.Store(id="chat-history", data=[{
+        "role": "assistant",
+        "content": f"""This is your AI-powered workspace. I can help you write code, analyze files, create visualizations, and more.
+
+**Getting Started:**
+- Type a message below to chat with me
+- Browse files on the right (click to view, ↓ to download)
+- Switch to **Canvas** tab to see charts and diagrams I create
+
+Let's get started!"""
+    }]),
     dcc.Store(id="pending-message", data=None),
     dcc.Store(id="expanded-folders", data=[]),
     dcc.Store(id="file-to-view", data=None),
@@ -644,6 +654,23 @@ app.layout = dmc.MantineProvider([
 # CALLBACKS
 # =============================================================================
 
+# Initial message display
+@app.callback(
+    Output("chat-messages", "children"),
+    Input("chat-history", "data"),
+    prevent_initial_call=False
+)
+def display_initial_messages(history):
+    """Display initial welcome message or chat history."""
+    if not history:
+        return []
+
+    messages = [
+        format_message(msg["role"], msg["content"], COLORS, STYLES, is_new=False)
+        for msg in history
+    ]
+    return messages
+
 # Chat callbacks
 @app.callback(
     [Output("chat-messages", "children", allow_duplicate=True),
@@ -677,7 +704,7 @@ def handle_send_immediate(n_clicks, n_submit, message, history):
 
 
 @app.callback(
-    [Output("chat-messages", "children"),
+    [Output("chat-messages", "children", allow_duplicate=True),
      Output("chat-history", "data", allow_duplicate=True),
      Output("poll-interval", "disabled", allow_duplicate=True)],
     Input("poll-interval", "n_intervals"),

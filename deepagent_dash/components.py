@@ -8,6 +8,22 @@ from dash import html, dcc
 def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: bool = False):
     """Format a chat message."""
     is_user = role == "user"
+
+    # Render content as markdown for assistant messages, plain text for user
+    if is_user:
+        content_element = html.Div(content, style={
+            "fontSize": "14px", "lineHeight": "1.6", "whiteSpace": "pre-wrap",
+        })
+    else:
+        content_element = dcc.Markdown(
+            content,
+            style={
+                "fontSize": "14px",
+                "lineHeight": "1.6",
+                "marginLeft": "8px",
+            }
+        )
+
     return html.Div([
         html.Div([
             html.Span("You" if is_user else "Agent", style={
@@ -19,9 +35,7 @@ def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: 
                 "fontSize": "11px", "color": colors["text_muted"], "marginLeft": "8px",
             })
         ], style={"marginBottom": "8px"}),
-        html.Div(content, style={
-            "fontSize": "14px", "lineHeight": "1.6", "whiteSpace": "pre-wrap",
-        })
+        content_element
     ], className="message-enter" if is_new else "", style={
         "padding": "16px",
         "background": colors["accent_light"] if is_user else colors["bg_primary"],
