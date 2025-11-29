@@ -178,7 +178,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
     """Render all canvas items."""
     if not canvas_items:
         return html.Div([
-            html.Div("🎨", style={
+            html.Div("🗒", style={
                 "fontSize": "48px",
                 "textAlign": "center",
                 "marginBottom": "16px",

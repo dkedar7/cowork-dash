@@ -16,17 +16,17 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 load_dotenv()
 
-from dash import Dash, html, dcc, Input, Output, State, callback_context, no_update, ALL
+from dash import Dash, html, Input, Output, State, callback_context, no_update, ALL
 from dash.exceptions import PreventUpdate
-import dash_mantine_components as dmc
 
 # Import custom modules
 from .canvas import parse_canvas_object, export_canvas_to_markdown, load_canvas_from_markdown
-from .file_utils import build_file_tree, render_file_tree, read_file_content, get_file_download_data
+from .file_utils import build_file_tree, render_file_tree, read_file_content, get_file_download_data, load_folder_contents
 from .components import (
     format_message, format_loading, format_thinking, format_todos,
     format_todos_inline, render_canvas_items
 )
+from .layout import create_layout as create_layout_component
 
 # Import configuration defaults
 from . import config
@@ -156,50 +156,19 @@ def load_agent_from_spec(agent_spec: str):
     except Exception as e:
         return None, f"Failed to load agent from {agent_spec}: {e}"
 
-# Only parse CLI arguments if running as main module
-if __name__ == "__main__":
-    args = parse_args()
+# Module-level configuration (uses config defaults)
+WORKSPACE_ROOT = config.WORKSPACE_ROOT
+APP_TITLE = config.APP_TITLE
+APP_SUBTITLE = config.APP_SUBTITLE
+PORT = config.PORT
+HOST = config.HOST
+DEBUG = config.DEBUG
 
-    # Apply configuration with CLI overrides
-    WORKSPACE_ROOT = Path(args.workspace).resolve() if args.workspace else config.WORKSPACE_ROOT
-    APP_TITLE = args.title if args.title else config.APP_TITLE
-    APP_SUBTITLE = args.subtitle if args.subtitle else config.APP_SUBTITLE
-    PORT = args.port if args.port else config.PORT
-    HOST = args.host if args.host else config.HOST
+# Ensure workspace exists
+WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
 
-    # Handle debug flag
-    if args.debug:
-        DEBUG = True
-    elif args.no_debug:
-        DEBUG = False
-    else:
-        DEBUG = config.DEBUG
-
-    # Ensure workspace exists
-    WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
-
-    # Initialize agent with override support
-    if args.agent:
-        # Load agent from CLI specification
-        agent, agent_error = load_agent_from_spec(args.agent)
-        AGENT_ERROR = agent_error
-    else:
-        # Use agent from config.py
-        agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
-else:
-    # When imported as a module, use config defaults
-    WORKSPACE_ROOT = config.WORKSPACE_ROOT
-    APP_TITLE = config.APP_TITLE
-    APP_SUBTITLE = config.APP_SUBTITLE
-    PORT = config.PORT
-    HOST = config.HOST
-    DEBUG = config.DEBUG
-
-    # Ensure workspace exists
-    WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
-
-    # Initialize agent from config
-    agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
+# Initialize agent from config
+agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
 
 
 # =============================================================================
@@ -252,8 +221,6 @@ _agent_state_lock = threading.Lock()
 
 def _run_agent_stream(message: str):
     """Run agent in background thread and update global state in real-time."""
-    global _agent_state
-
     if not agent:
         with _agent_state_lock:
             _agent_state["response"] = f"⚠️ {_agent_state['error']}\n\nPlease check your setup and try again."
@@ -370,15 +337,11 @@ def _run_agent_stream(message: str):
 
 def call_agent(message: str):
     """Start agent execution in background thread."""
-    global _agent_state
-
-    # Preserve existing canvas from current state
+    # Reset state but preserve canvas - do it all atomically
     with _agent_state_lock:
         existing_canvas = _agent_state.get("canvas", []).copy()
-
-    # Reset state but preserve canvas
-    with _agent_state_lock:
-        _agent_state = {
+        _agent_state.clear()
+        _agent_state.update({
             "running": True,
             "thinking": "",
             "todos": [],
@@ -386,7 +349,7 @@ def call_agent(message: str):
             "response": "",
             "error": None,
             "last_update": time.time()
-        }
+        })
 
     # Start background thread
     thread = threading.Thread(target=_run_agent_stream, args=(message,))
@@ -417,250 +380,19 @@ with open(Path(__file__).parent / "templates" / "index.html", "r") as f:
 # LAYOUT
 # =============================================================================
 
-app.layout = dmc.MantineProvider([
-    # State stores
-    dcc.Store(id="chat-history", data=[{
-        "role": "assistant",
-        "content": f"""This is your AI-powered workspace. I can help you write code, analyze files, create visualizations, and more.
+def create_layout():
+    """Create the app layout with current configuration."""
+    return create_layout_component(
+        workspace_root=WORKSPACE_ROOT,
+        app_title=APP_TITLE,
+        app_subtitle=APP_SUBTITLE,
+        colors=COLORS,
+        styles=STYLES,
+        agent=agent
+    )
 
-**Getting Started:**
-- Type a message below to chat with me
-- Browse files on the right (click to view, ↓ to download)
-- Switch to **Canvas** tab to see charts and diagrams I create
-
-Let's get started!"""
-    }]),
-    dcc.Store(id="pending-message", data=None),
-    dcc.Store(id="expanded-folders", data=[]),
-    dcc.Store(id="file-to-view", data=None),
-    dcc.Download(id="file-download"),
-
-    # Interval for polling agent updates (disabled by default)
-    dcc.Interval(id="poll-interval", interval=250, disabled=True),
-    
-    # File viewer modal
-    dmc.Modal(
-        id="file-modal",
-        title="",
-        size="xl",
-        children=[
-            html.Div(id="modal-content"),
-            html.Div([
-                dmc.Button(
-                    "Download",
-                    id="modal-download-btn",
-                    variant="outline",
-                    color="blue",
-                    style={"marginTop": "16px"}
-                )
-            ], style={"textAlign": "right"})
-        ],
-        opened=False,
-    ),
-    
-    html.Div([
-        # Header
-        html.Header([
-            html.Div([
-                html.Div([
-                    html.H1(APP_TITLE or "DeepAgent Dash", style={
-                        "fontSize": "18px", "fontWeight": "600", "margin": "0",
-                    }),
-                    html.Span(APP_SUBTITLE or "AI-Powered Workspace", style={
-                        "fontSize": "12px", "color": COLORS["text_muted"], "marginLeft": "12px",
-                    })
-                ], style={"display": "flex", "alignItems": "baseline"}),
-                html.Div([
-                    html.Div(style={
-                        "width": "8px", "height": "8px",
-                        "background": COLORS["success"] if agent else COLORS["error"],
-                        "marginRight": "8px",
-                    }),
-                    html.Span("Ready" if agent else "No Agent", style={
-                        "fontSize": "13px", "color": COLORS["text_secondary"],
-                    })
-                ], style={"display": "flex", "alignItems": "center"})
-            ], style={
-                "display": "flex", "justifyContent": "space-between",
-                "alignItems": "center", "maxWidth": "1600px",
-                "margin": "0 auto", "padding": "0 24px",
-            })
-        ], style={
-            "background": COLORS["bg_primary"],
-            "borderBottom": f"1px solid {COLORS['border']}",
-            "padding": "16px 0",
-        }),
-        
-        # Main content
-        html.Main([
-            # Chat panel
-            html.Div([
-                html.Div([
-                    html.H2("Chat", style={"fontSize": "14px", "fontWeight": "600", "margin": "0"}),
-                ], style={
-                    "padding": "16px 20px",
-                    "borderBottom": f"1px solid {COLORS['border']}",
-                    "background": COLORS["bg_primary"],
-                }),
-                
-                # Messages
-                html.Div(id="chat-messages", style={
-                    "flex": "1", "overflowY": "auto", "padding": "20px",
-                    "display": "flex", "flexDirection": "column", "gap": "16px",
-                }),
-                
-                # Input
-                html.Div([
-                    dcc.Upload(
-                        id="file-upload",
-                        children=html.Div("+", style={"fontSize": "20px", "color": COLORS["text_muted"]}),
-                        style={
-                            "width": "40px", "height": "40px",
-                            "display": "flex", "alignItems": "center", "justifyContent": "center",
-                            "cursor": "pointer", "border": f"1px solid {COLORS['border']}",
-                            "background": COLORS["bg_primary"],
-                        },
-                        multiple=True
-                    ),
-                    dcc.Input(
-                        id="chat-input",
-                        type="text",
-                        placeholder="Type a message...",
-                        className="chat-input",
-                        debounce=False,
-                        style={
-                            "flex": "1", "padding": "10px 16px", "height": "40px",
-                            "border": f"1px solid {COLORS['border']}",
-                            "background": COLORS["bg_primary"], "fontSize": "14px",
-                        },
-                    ),
-                    html.Button("Send", id="send-btn", className="send-btn", style={
-                        "padding": "0 24px", "height": "40px",
-                        "background": COLORS["accent"], "color": "#ffffff",
-                        "border": "none", "fontSize": "14px", "fontWeight": "500",
-                        "cursor": "pointer",
-                    }),
-                ], style={
-                    "display": "flex", "gap": "8px", "padding": "16px 20px",
-                    "borderTop": f"1px solid {COLORS['border']}",
-                    "background": COLORS["bg_primary"],
-                }),
-                html.Div(id="upload-status", style={
-                    "padding": "0 20px 12px", "fontSize": "12px", "color": COLORS["text_muted"],
-                }),
-            ], id="chat-panel", style={
-                "flex": "1", "display": "flex", "flexDirection": "column",
-                "background": COLORS["bg_secondary"], "minWidth": "0",
-            }),
-
-            # Resize handle
-            html.Div(id="resize-handle", className="resize-handle", style={
-                "width": "4px",
-                "cursor": "col-resize",
-                "background": "transparent",
-                "flexShrink": "0",
-            }),
-
-            # Sidebar (Files/Canvas toggle)
-            html.Div([
-                # Header with toggle
-                html.Div([
-                    html.Div([
-                        html.Button("Files", id="view-files-btn", style={
-                            "background": COLORS["accent"],
-                            "color": "#ffffff",
-                            "border": "none",
-                            "fontSize": "13px",
-                            "fontWeight": "500",
-                            "cursor": "pointer",
-                            "padding": "6px 12px",
-                            "borderRadius": "4px 0 0 4px",
-                        }),
-                        html.Button("Canvas", id="view-canvas-btn", style={
-                            "background": COLORS["bg_secondary"],
-                            "color": COLORS["text_secondary"],
-                            "border": "none",
-                            "fontSize": "13px",
-                            "fontWeight": "500",
-                            "cursor": "pointer",
-                            "padding": "6px 12px",
-                            "borderRadius": "0 4px 4px 0",
-                        }),
-                    ], style={"display": "flex"}),
-                    html.Div([
-                        html.Button(">_", id="open-terminal-btn", title="Open in Terminal", style={
-                            "background": "transparent", "border": "none",
-                            "fontSize": "13px", "cursor": "pointer", "padding": "4px 8px",
-                            "color": COLORS["text_secondary"], "fontFamily": "'IBM Plex Mono', monospace",
-                            "fontWeight": "600",
-                        }),
-                        html.Button("↻", id="refresh-btn", title="Refresh", style={
-                            "background": "transparent", "border": "none",
-                            "fontSize": "16px", "cursor": "pointer", "padding": "4px 8px",
-                        }),
-                    ], id="files-actions", style={"display": "flex", "alignItems": "center"})
-                ], style={
-                    "display": "flex", "justifyContent": "space-between",
-                    "alignItems": "center", "padding": "16px",
-                    "borderBottom": f"1px solid {COLORS['border']}",
-                }),
-
-                # Files view
-                html.Div([
-                    html.Div(
-                        id="file-tree",
-                        children=render_file_tree(build_file_tree(WORKSPACE_ROOT, WORKSPACE_ROOT), COLORS, STYLES),
-                        style={"flex": "1", "overflowY": "auto"}
-                    ),
-                ], id="files-view", style={"flex": "1", "display": "flex", "flexDirection": "column"}),
-
-                # Canvas view (hidden by default)
-                html.Div([
-                    html.Div(id="canvas-content", style={
-                        "flex": "1",
-                        "minHeight": "0",  # Critical for flex overflow
-                        "overflowY": "auto",
-                        "padding": "20px",
-                        "background": "#ffffff",  # White background like a note
-                    }),
-                    # Clear canvas button (floating at bottom)
-                    html.Div([
-                        html.Button("Clear Canvas", id="clear-canvas-btn", style={
-                            "background": COLORS["error"],
-                            "color": "#ffffff",
-                            "border": "none",
-                            "fontSize": "13px",
-                            "fontWeight": "500",
-                            "cursor": "pointer",
-                            "padding": "8px 16px",
-                            "borderRadius": "4px",
-                        })
-                    ], style={
-                        "padding": "12px 20px",
-                        "borderTop": f"1px solid {COLORS['border']}",
-                        "background": COLORS["bg_primary"],
-                        "display": "flex",
-                        "justifyContent": "center"
-                    })
-                ], id="canvas-view", style={
-                    "flex": "1",
-                    "minHeight": "0",  # Critical for flex overflow
-                    "display": "none",
-                    "flexDirection": "column",
-                    "overflow": "hidden"  # Prevent overflow from this container
-                }),
-            ], id="sidebar-panel", style={
-                "flex": "1",
-                "minWidth": "0",
-                "minHeight": "0",  # Critical for flex overflow
-                "display": "flex",
-                "flexDirection": "column",
-                "background": COLORS["bg_primary"],
-                "borderLeft": f"1px solid {COLORS['border']}",
-            }),
-        ], id="main-container", style={"display": "flex", "flex": "1", "overflow": "hidden"}),
-    ], style={"display": "flex", "flexDirection": "column", "height": "100vh"})
-])
+# Set layout as a function so it uses current WORKSPACE_ROOT
+app.layout = create_layout
 
 # Note: Component rendering functions imported from components module
 # These are used in callbacks below with COLORS and STYLES passed as parameters
@@ -786,16 +518,19 @@ def poll_agent_updates(n_intervals, history, pending_message):
 # Folder toggle callback
 @app.callback(
     [Output({"type": "folder-children", "path": ALL}, "style"),
-     Output({"type": "folder-icon", "path": ALL}, "style")],
+     Output({"type": "folder-icon", "path": ALL}, "style"),
+     Output({"type": "folder-children", "path": ALL}, "children")],
     Input({"type": "folder-header", "path": ALL}, "n_clicks"),
-    [State({"type": "folder-children", "path": ALL}, "id"),
+    [State({"type": "folder-header", "path": ALL}, "data-realpath"),
+     State({"type": "folder-children", "path": ALL}, "id"),
      State({"type": "folder-icon", "path": ALL}, "id"),
      State({"type": "folder-children", "path": ALL}, "style"),
-     State({"type": "folder-icon", "path": ALL}, "style")],
+     State({"type": "folder-icon", "path": ALL}, "style"),
+     State({"type": "folder-children", "path": ALL}, "children")],
     prevent_initial_call=True
 )
-def toggle_folder(n_clicks, children_ids, icon_ids, children_styles, icon_styles):
-    """Toggle folder expansion."""
+def toggle_folder(n_clicks, real_paths, children_ids, icon_ids, children_styles, icon_styles, children_content):
+    """Toggle folder expansion and lazy load contents if needed."""
     ctx = callback_context
     if not ctx.triggered or not any(n_clicks):
         raise PreventUpdate
@@ -808,20 +543,58 @@ def toggle_folder(n_clicks, children_ids, icon_ids, children_styles, icon_styles
     except:
         raise PreventUpdate
 
+    # Find the index of the clicked folder to get its real path
+    clicked_idx = None
+    for i, icon_id in enumerate(icon_ids):
+        if icon_id["path"] == clicked_path:
+            clicked_idx = i
+            break
+
+    if clicked_idx is None:
+        raise PreventUpdate
+
+    folder_rel_path = real_paths[clicked_idx] if clicked_idx < len(real_paths) else None
+    if not folder_rel_path:
+        raise PreventUpdate
+
     new_children_styles = []
     new_icon_styles = []
+    new_children_content = []
 
     # Process all folder-children elements
     for i, child_id in enumerate(children_ids):
         path = child_id["path"]
         current_style = children_styles[i] if i < len(children_styles) else {"display": "none"}
+        current_content = children_content[i] if i < len(children_content) else []
 
         if path == clicked_path:
             # Toggle this folder
             is_expanded = current_style.get("display") != "none"
             new_children_styles.append({"display": "none" if is_expanded else "block"})
+
+            # If expanding and content is just "Loading...", load the actual contents
+            if not is_expanded and current_content:
+                # Check if content is the loading placeholder
+                if (isinstance(current_content, list) and len(current_content) == 1 and
+                    isinstance(current_content[0], dict) and
+                    current_content[0].get("props", {}).get("children") == "Loading..."):
+                    # Load folder contents using real path
+                    try:
+                        folder_items = load_folder_contents(folder_rel_path, WORKSPACE_ROOT)
+                        loaded_content = render_file_tree(folder_items, COLORS, STYLES,
+                                                          level=folder_rel_path.count("/") + 1,
+                                                          parent_path=folder_rel_path)
+                        new_children_content.append(loaded_content if loaded_content else current_content)
+                    except Exception as e:
+                        print(f"Error loading folder {folder_rel_path}: {e}")
+                        new_children_content.append(current_content)
+                else:
+                    new_children_content.append(current_content)
+            else:
+                new_children_content.append(current_content)
         else:
             new_children_styles.append(current_style)
+            new_children_content.append(current_content)
 
     # Process all folder-icon elements
     for i, icon_id in enumerate(icon_ids):
@@ -847,7 +620,7 @@ def toggle_folder(n_clicks, children_ids, icon_ids, children_styles, icon_styles
         else:
             new_icon_styles.append(current_icon_style)
 
-    return new_children_styles, new_icon_styles
+    return new_children_styles, new_icon_styles, new_children_content
 
 
 # File click - open modal
@@ -862,23 +635,34 @@ def toggle_folder(n_clicks, children_ids, icon_ids, children_styles, icon_styles
 def open_file_modal(n_clicks):
     """Open file in modal."""
     ctx = callback_context
-    if not ctx.triggered or not any(n_clicks):
+    
+    if not ctx.triggered_id:
         raise PreventUpdate
     
-    triggered = ctx.triggered[0]["prop_id"]
-    try:
-        id_str = triggered.rsplit(".", 1)[0]
-        id_dict = json.loads(id_str)
-        file_path = id_dict.get("path")
-    except:
+    # ctx.triggered_id is the dict {"type": "file-item", "path": "..."}
+    if not isinstance(ctx.triggered_id, dict):
+        raise PreventUpdate
+        
+    if ctx.triggered_id.get("type") != "file-item":
         raise PreventUpdate
     
+    file_path = ctx.triggered_id.get("path")
     if not file_path:
         raise PreventUpdate
     
+    # Get the actual click value from triggered
+    triggered_value = ctx.triggered[0]["value"]
+    if not triggered_value:  # None or 0
+        raise PreventUpdate
+    
+    # Verify file exists and is a file
+    full_path = WORKSPACE_ROOT / file_path
+    if not full_path.exists() or not full_path.is_file():
+        raise PreventUpdate
+
     content, is_text, error = read_file_content(WORKSPACE_ROOT, file_path)
     filename = Path(file_path).name
-    
+
     if is_text and content:
         modal_content = html.Pre(
             content,
@@ -907,9 +691,8 @@ def open_file_modal(n_clicks):
                 "fontSize": "13px",
             })
         ])
-    
-    return True, filename, modal_content, file_path
 
+    return True, filename, modal_content, file_path
 
 # Modal download button
 @app.callback(
@@ -920,43 +703,22 @@ def open_file_modal(n_clicks):
 )
 def download_from_modal(n_clicks, file_path):
     """Download file from modal."""
+    ctx = callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+
+    # Verify this callback was actually triggered by the download button
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    if triggered_id != "modal-download-btn":
+        raise PreventUpdate
+
     if not n_clicks or not file_path:
         raise PreventUpdate
-    
+
     b64, filename, mime = get_file_download_data(WORKSPACE_ROOT, file_path)
     if not b64:
         raise PreventUpdate
-    
-    return dict(content=b64, filename=filename, base64=True, type=mime)
 
-
-# Direct download button in file tree
-@app.callback(
-    Output("file-download", "data"),
-    Input({"type": "download-btn", "path": ALL}, "n_clicks"),
-    prevent_initial_call=True
-)
-def download_file(n_clicks):
-    """Download file directly."""
-    ctx = callback_context
-    if not ctx.triggered or not any(n_clicks):
-        raise PreventUpdate
-    
-    triggered = ctx.triggered[0]["prop_id"]
-    try:
-        id_str = triggered.rsplit(".", 1)[0]
-        id_dict = json.loads(id_str)
-        file_path = id_dict.get("path")
-    except:
-        raise PreventUpdate
-    
-    if not file_path:
-        raise PreventUpdate
-    
-    b64, filename, mime = get_file_download_data(WORKSPACE_ROOT, file_path)
-    if not b64:
-        raise PreventUpdate
-    
     return dict(content=b64, filename=filename, base64=True, type=mime)
 
 
@@ -1175,7 +937,6 @@ def clear_canvas(n_clicks):
     canvas_dir = WORKSPACE_ROOT / ".canvas"
     if canvas_dir.exists() and canvas_dir.is_dir():
         try:
-            import shutil
             archive_dir = WORKSPACE_ROOT / f".canvas_{timestamp}"
             shutil.move(str(canvas_dir), str(archive_dir))
             print(f"Archived .canvas folder to {archive_dir}")
@@ -1188,7 +949,7 @@ def clear_canvas(n_clicks):
 
     # Return empty state
     return html.Div([
-        html.Div("🎨", style={
+        html.Div("🗒", style={
             "fontSize": "48px",
             "textAlign": "center",
             "marginBottom": "16px",
@@ -1352,6 +1113,9 @@ def run_app(
 # =============================================================================
 
 if __name__ == "__main__":
+    # Parse CLI arguments
+    args = parse_args()
+
     # When run directly (not as package), use original CLI arg parsing
     sys.exit(run_app(
         workspace=args.workspace if args.workspace else None,

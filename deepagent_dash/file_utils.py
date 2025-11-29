@@ -19,8 +19,18 @@ def is_text_file(filename: str) -> bool:
     return ext in TEXT_EXTENSIONS or ext == ""
 
 
-def build_file_tree(root: Path, workspace_root: Path) -> List[Dict]:
-    """Build file tree structure."""
+def build_file_tree(root: Path, workspace_root: Path, lazy_load: bool = True) -> List[Dict]:
+    """
+    Build file tree structure.
+
+    Args:
+        root: Directory to scan
+        workspace_root: Root workspace directory for relative paths
+        lazy_load: If True, only load immediate children (subdirs not expanded)
+
+    Returns:
+        List of file/folder items
+    """
     items = []
     try:
         entries = sorted(root.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
@@ -29,11 +39,19 @@ def build_file_tree(root: Path, workspace_root: Path) -> List[Dict]:
                 continue
             rel_path = str(entry.relative_to(workspace_root))
             if entry.is_dir():
+                # Count immediate children to show if folder is empty
+                try:
+                    has_children = any(not item.name.startswith('.') for item in entry.iterdir())
+                except (PermissionError, OSError):
+                    has_children = False
+
                 items.append({
                     "type": "folder",
                     "name": entry.name,
                     "path": rel_path,
-                    "children": build_file_tree(entry, workspace_root)
+                    "has_children": has_children,
+                    # Only recursively load children if not lazy loading
+                    "children": [] if lazy_load else build_file_tree(entry, workspace_root, lazy_load=False)
                 })
             else:
                 items.append({
@@ -45,6 +63,21 @@ def build_file_tree(root: Path, workspace_root: Path) -> List[Dict]:
     except PermissionError:
         pass
     return items
+
+
+def load_folder_contents(folder_path: str, workspace_root: Path) -> List[Dict]:
+    """
+    Load contents of a specific folder (for lazy loading).
+
+    Args:
+        folder_path: Relative path to the folder from workspace root
+        workspace_root: Root workspace directory
+
+    Returns:
+        List of file/folder items in the specified folder
+    """
+    full_path = workspace_root / folder_path
+    return build_file_tree(full_path, workspace_root, lazy_load=True)
 
 
 def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int = 0, parent_path: str = "") -> List:
@@ -78,6 +111,7 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                     })
                 ],
                 id={"type": "folder-header", "path": folder_id},
+                **{"data-realpath": item["path"]},  # Store actual path for lazy loading
                 style={
                     "display": "flex",
                     "alignItems": "center",
@@ -92,17 +126,41 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
             )
 
             # Folder children (hidden by default) - always create even if empty
-            components.append(
-                html.Div(
-                    render_file_tree(children, colors, styles, level + 1, item["path"]) if children else [
-                        html.Div("(empty)", style={
+            # Show different content based on whether children are loaded
+            has_children = item.get("has_children", True)
+
+            if children:
+                # Children are loaded, render them
+                child_content = render_file_tree(children, colors, styles, level + 1, item["path"])
+            elif not has_children:
+                # Folder is known to be empty
+                child_content = [
+                    html.Div("(empty)", style={
+                        "padding": "8px 12px",
+                        "paddingLeft": f"{32 + (level + 1) * 20}px",
+                        "fontSize": "12px",
+                        "color": colors["text_muted"],
+                        "fontStyle": "italic",
+                    })
+                ]
+            else:
+                # Children not yet loaded (lazy loading)
+                child_content = [
+                    html.Div("Loading...",
+                        id={"type": "folder-loading", "path": folder_id},
+                        style={
                             "padding": "8px 12px",
                             "paddingLeft": f"{32 + (level + 1) * 20}px",
                             "fontSize": "12px",
                             "color": colors["text_muted"],
                             "fontStyle": "italic",
-                        })
-                    ],
+                        }
+                    )
+                ]
+
+            components.append(
+                html.Div(
+                    child_content,
                     id={"type": "folder-children", "path": folder_id},
                     style={"display": "none"}  # Collapsed by default
                 )
@@ -110,40 +168,20 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
         else:
             # File item
             components.append(
-                html.Div([
-                    html.Span(item["name"], style={
+                html.Div(
+                    item["name"],
+                    id={"type": "file-item", "path": item["path"]},
+                    style={
                         "color": colors["text_secondary"],
                         "fontSize": "13px",
-                        "flex": "1",
-                    }),
-                    # Download button
-                    html.Span(
-                        "↓",
-                        id={"type": "download-btn", "path": item["path"]},
-                        title="Download",
-                        style={
-                            "color": colors["text_muted"],
-                            "fontSize": "14px",
-                            "padding": "0 4px",
-                            "cursor": "pointer",
-                            "opacity": "0",
-                            "transition": "opacity 0.15s",
-                        },
-                        className="download-btn"
-                    )
-                ],
-                id={"type": "file-item", "path": item["path"]},
-                style={
-                    "display": "flex",
-                    "alignItems": "center",
-                    "padding": "8px 12px",
-                    "paddingLeft": f"{32 + indent}px",
-                    "cursor": "pointer",
-                    "borderBottom": f"1px solid {colors['border_light']}",
-                    "transition": styles["transition"],
-                },
-                className="file-item",
-                **{"data-viewable": "true" if item["viewable"] else "false"}
+                        "padding": "8px 12px",
+                        "paddingLeft": f"{32 + indent}px",
+                        "cursor": "pointer",
+                        "borderBottom": f"1px solid {colors['border_light']}",
+                        "transition": styles["transition"],
+                    },
+                    className="file-item",
+                    **{"data-viewable": "true" if item["viewable"] else "false"}
                 )
             )
 
