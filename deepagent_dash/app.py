@@ -1,3 +1,4 @@
+import os
 import uuid
 import sys
 import json
@@ -1075,6 +1076,7 @@ def clear_canvas(n_clicks):
 # =============================================================================
 
 def run_app(
+    agent_instance=None,
     workspace=None,
     agent_spec=None,
     port=None,
@@ -1091,20 +1093,30 @@ def run_app(
     for the CLI. It handles configuration loading and overrides.
 
     Args:
+        agent_instance (object, optional): Agent object instance (Python API only)
         workspace (str, optional): Workspace directory path
-        agent_spec (str, optional): Agent specification as "path:object"
+        agent_spec (str, optional): Agent specification as "path:object" (overrides agent_instance)
         port (int, optional): Port number
         host (str, optional): Host to bind to
         debug (bool, optional): Debug mode
         title (str, optional): Application title
+        subtitle (str, optional): Application subtitle
         config_file (str, optional): Path to config file (default: ./config.py)
 
     Returns:
         int: Exit code (0 for success, non-zero for error)
 
-    Example:
-        >>> from deepagents_dash import run_app
-        >>> run_app(workspace="~/my-workspace", port=8080, debug=True)
+    Examples:
+        >>> # Using agent instance directly
+        >>> from deepagent_dash import run_app
+        >>> my_agent = MyAgent()
+        >>> run_app(my_agent, workspace="~/my-workspace")
+
+        >>> # Using agent spec
+        >>> run_app(agent_spec="my_agent.py:agent", port=8080)
+
+        >>> # Without agent (manual mode)
+        >>> run_app(workspace="~/my-workspace", debug=True)
     """
     global WORKSPACE_ROOT, APP_TITLE, APP_SUBTITLE, PORT, HOST, DEBUG, agent, AGENT_ERROR, args
 
@@ -1132,8 +1144,16 @@ def run_app(
         HOST = host if host else getattr(config_module, "HOST", config.HOST)
         DEBUG = debug if debug is not None else getattr(config_module, "DEBUG", config.DEBUG)
 
-        # Get agent from config file if not specified via CLI
-        if not agent_spec:
+        # Agent priority: agent_spec > agent_instance > config file
+        if agent_spec:
+            # Load agent from spec (highest priority)
+            agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
+        elif agent_instance is not None:
+            # Use provided agent instance
+            agent = agent_instance
+            AGENT_ERROR = None
+        else:
+            # Get agent from config file
             get_agent_func = getattr(config_module, "get_agent", None)
             if get_agent_func:
                 result = get_agent_func()
@@ -1145,9 +1165,6 @@ def run_app(
             else:
                 agent = None
                 AGENT_ERROR = "No get_agent() function in config file"
-        else:
-            # Load agent from CLI spec
-            agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
     else:
         # No config file, use CLI args or defaults
         WORKSPACE_ROOT = Path(workspace).resolve() if workspace else config.WORKSPACE_ROOT
@@ -1157,14 +1174,24 @@ def run_app(
         HOST = host if host else config.HOST
         DEBUG = debug if debug is not None else config.DEBUG
 
+        # Agent priority: agent_spec > agent_instance > config default
         if agent_spec:
+            # Load agent from spec (highest priority)
             agent, AGENT_ERROR = load_agent_from_spec(agent_spec)
+        elif agent_instance is not None:
+            # Use provided agent instance
+            agent = agent_instance
+            AGENT_ERROR = None
         else:
             # Use default config agent
             agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
 
     # Ensure workspace exists
     WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
+
+    # Set environment variable for agent to access workspace
+    # This allows user agents to read DEEPAGENT_WORKSPACE_ROOT
+    os.environ['DEEPAGENT_WORKSPACE_ROOT'] = str(WORKSPACE_ROOT)
 
     # Update global state to use the configured workspace
     global _agent_state

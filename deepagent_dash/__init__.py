@@ -14,13 +14,15 @@ Features:
 
 Usage:
     # Command-line
-    $ deepagent-dash init my-project
-    $ cd my-project
-    $ deepagent-dash run
+    $ deepagent-dash run --workspace ~/my-workspace
 
     # Python API
     from deepagent_dash import run_app
-    run_app(workspace="~/my-workspace", port=8080)
+
+    # With agent instance
+    from my_agent import MyAgent
+    agent = MyAgent()
+    run_app(agent, workspace="~/my-workspace")
 """
 
 __version__ = "0.1.0"
