@@ -1,130 +1,72 @@
 # DeepAgent Dash
 
-A modular Dash application providing a web interface for AI agent interactions with filesystem workspace, canvas visualization, and real-time streaming.
+A web interface for AI agent interactions with filesystem workspace, canvas visualization, and real-time streaming.
 
 ## Features
 
-- 🤖 **AI Agent Chat**: Real-time streaming chat interface with thinking and task progress
-- 📁 **File Browser**: Interactive file tree with upload/download capabilities
-- 🎨 **Canvas**: Visualize DataFrames, charts, images, and diagrams
-- 🔄 **Real-time Updates**: Live agent thinking and task progress
-- 📊 **Rich Visualizations**: Support for Matplotlib, Plotly, Mermaid diagrams
-- 🎛️ **Resizable Panels**: Adjustable split view
-- ⚙️ **Flexible Configuration**: config.py or command-line arguments
-- 📦 **Easy Distribution**: pip-installable package
+- 🤖 **AI Agent Chat**: Real-time streaming with thinking process and task progress
+- 📁 **File Browser**: Interactive file tree with lazy loading
+- 🎨 **Canvas**: Visualize DataFrames, Plotly/Matplotlib charts, Mermaid diagrams, images
+- ⚙️ **Flexible Configuration**: Environment variables, CLI args, or config file
 
 ## Quick Start
 
 ### Installation
 
-**Option 1: Install from PyPI** (recommended)
 ```bash
 pip install deepagent-dash
 ```
 
-**Option 2: Install from source**
-```bash
-git clone https://github.com/dkedar7/deepagent-dash.git
-cd deepagent-dash
-pip install -e .
-```
-
-### Initialize a Project
+### Run
 
 ```bash
-# Create a new project
-deepagent-dash init my-agent-project
-
-# Navigate to project
-cd my-agent-project
-
-# Set up environment (if using DeepAgents)
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-
-# Edit config.py to customize your agent
-
-# Run the application
-deepagent-dash run
-```
-
-Then open your browser to `http://127.0.0.1:8050`
-
-### Quick Run (without project)
-
-```bash
-# Run with defaults
+# Run with defaults (current directory as workspace, no agent)
 deepagent-dash run
 
-# Run with custom settings
-deepagent-dash run --workspace ~/my-workspace --port 8080
+# Run with workspace
+deepagent-dash run --workspace ~/my-workspace
 
-# Run with custom agent
-deepagent-dash run --agent my_agent.py:agent --debug
+# Run with custom agent (optional)
+deepagent-dash run --agent my_agent.py:agent
 ```
 
-## Usage
+Open browser to `http://localhost:8050`
 
-### Configuration Priority
+## Configuration
 
-DeepAgent Dash supports three ways to configure the application, with the following priority (highest to lowest):
+### Priority (highest to lowest)
 
-1. **CLI Arguments** - Override everything
-2. **Environment Variables** - Override config file defaults
-3. **Config File** - Base defaults
+1. **CLI Arguments** - `--workspace`, `--port`, etc.
+2. **Environment Variables** - `DEEPAGENT_*`
+3. **Config File** - `config.py` defaults
 
-### Environment Variables
-
-All configuration can be controlled via environment variables:
+### Environment Variables (optional)
 
 ```bash
-# Workspace directory
 export DEEPAGENT_WORKSPACE_ROOT=/path/to/workspace
+export DEEPAGENT_AGENT_SPEC=my_agent.py:agent  # optional
+export DEEPAGENT_PORT=9000                      # optional (default: 8050)
+export DEEPAGENT_HOST=0.0.0.0                   # optional (default: localhost)
+export DEEPAGENT_DEBUG=true                     # optional (default: false)
+export DEEPAGENT_APP_TITLE="My App"             # optional
+export DEEPAGENT_APP_SUBTITLE="Subtitle"        # optional
 
-# Agent specification
-export DEEPAGENT_AGENT_SPEC=my_agent.py:agent
-
-# UI configuration
-export DEEPAGENT_APP_TITLE="My Custom App"
-export DEEPAGENT_APP_SUBTITLE="Custom Subtitle"
-
-# Server configuration
-export DEEPAGENT_PORT=9000
-export DEEPAGENT_HOST=0.0.0.0
-export DEEPAGENT_DEBUG=true
-
-# Run the app (uses env vars)
 deepagent-dash run
 ```
 
-This is especially useful for Docker/Kubernetes deployments.
-
-### Command-Line Interface
+### CLI Options (all optional)
 
 ```bash
-# Initialize new project
-deepagent-dash init my-project
-
-# Run application
 deepagent-dash run [OPTIONS]
 
-Options:
-  --workspace PATH        Workspace directory path
-  --agent PATH:OBJECT     Agent specification (e.g., "agent.py:agent")
-  --port PORT            Port to run on (default: 8050)
-  --host HOST            Host to bind to (default: 127.0.0.1)
+  --workspace PATH        Workspace directory (default: current directory)
+  --agent PATH:OBJECT     Agent spec (default: none, manual mode)
+  --port PORT            Server port (default: 8050)
+  --host HOST            Server host (default: localhost)
   --debug                Enable debug mode
-  --no-debug             Disable debug mode
-  --title TITLE          Application title
-  --config PATH          Config file path (default: ./config.py)
-  --help                 Show help message
-
-# Examples
-deepagent-dash run --workspace ~/projects --port 8080 --debug
-deepagent-dash run --agent custom_agent.py:my_agent
+  --title TITLE          App title (default: "DeepAgent Dash")
+  --subtitle TEXT        App subtitle (default: "AI-Powered Workspace")
 ```
-
-> 💡 See [docs/CLI_USAGE.md](docs/CLI_USAGE.md) for detailed command-line documentation
 
 ### Python API
 
@@ -134,91 +76,20 @@ from deepagent_dash import run_app
 # Run with defaults
 run_app()
 
-# Run with custom configuration
+# Run with custom settings (all optional)
 run_app(
     workspace="~/my-workspace",
-    port=8080,
-    debug=True
+    agent_spec="my_agent.py:agent",  # optional
+    port=8080,                        # optional
+    debug=True                        # optional
 )
-
-# Run with custom agent
-run_app(
-    agent_spec="my_agent.py:custom_agent",
-    workspace="~/projects"
-)
-```
-
-### Configuration File
-
-When you run `deepagent-dash init`, a `config.py` file is created:
-
-```python
-from pathlib import Path
-
-# Set your workspace directory
-WORKSPACE_ROOT = Path("./workspace").resolve()
-
-# Configure your agent
-def get_agent():
-    from deepagents import create_deep_agent
-    from deepagents.backends import FilesystemBackend
-
-    backend = FilesystemBackend(root_dir=str(WORKSPACE_ROOT), virtual_mode=True)
-    agent = create_deep_agent(
-        model="anthropic:claude-sonnet-4-20250514",
-        system_prompt="Your custom system prompt here",
-        backend=backend
-    )
-    return agent, None
-
-# UI Configuration
-APP_TITLE = "DeepAgent Dash"
-PORT = 8050
-HOST = "127.0.0.1"
-DEBUG = False
-```
-
-## Project Structure
-
-### Installed Package
-
-```
-deepagent-dash/
-├── pyproject.toml         # Package configuration
-├── README.md              # This file
-├── LICENSE                # MIT License
-├── deepagent_dash/       # Main package
-│   ├── __init__.py       # Package exports
-│   ├── __main__.py       # python -m deepagent_dash
-│   ├── cli.py            # Command-line interface
-│   ├── app.py            # Main application
-│   ├── canvas.py   # Canvas functionality
-│   ├── file_utils.py     # File operations
-│   ├── components.py     # UI components
-│   ├── config.py # Template for init
-│   ├── assets/           # CSS, JavaScript
-│   └── templates/        # HTML templates
-├── examples/             # Example agents
-└── docs/                 # Documentation
-```
-
-### Created Project (after `deepagent-dash init`)
-
-```
-my-project/
-├── config.py             # Your configuration (edit this)
-├── workspace/            # Your agent's workspace
-├── .env.example          # Environment variables template
-├── .env                  # Your environment variables (create this)
-├── .gitignore           # Git ignore patterns
-└── README.md            # Project README
 ```
 
 ## Agent Integration
 
-### Accessing the Workspace
+### Workspace Access
 
-DeepAgent Dash automatically sets the `DEEPAGENT_WORKSPACE_ROOT` environment variable, which your agent can read:
+DeepAgent Dash sets `DEEPAGENT_WORKSPACE_ROOT` environment variable for your agent:
 
 ```python
 import os
@@ -226,209 +97,86 @@ from pathlib import Path
 
 # In your agent code
 workspace = Path(os.getenv('DEEPAGENT_WORKSPACE_ROOT', './'))
-print(f"Agent workspace: {workspace}")
 
-# Now your agent can read/write files in the workspace
+# Read/write files in workspace
 config_file = workspace / "config.json"
-if config_file.exists():
-    # ... process config
 ```
 
-This environment variable is automatically set based on:
-1. CLI argument: `--workspace /path`
-2. Environment variable: `DEEPAGENT_WORKSPACE_ROOT`
-3. Config file: `WORKSPACE_ROOT`
+### Agent Specification
 
-### Using DeepAgents
+Load agents using `path:object` format:
 
-```python
-# In your config.py
-def get_agent():
-    import os
-    from pathlib import Path
-    from deepagents import create_deep_agent
-    from deepagents.backends import FilesystemBackend
+```bash
+# Load from Python file
+deepagent-dash run --agent agent.py:my_agent
 
-    # Read workspace from environment (set by DeepAgent Dash)
-    workspace = Path(os.getenv('DEEPAGENT_WORKSPACE_ROOT', './'))
-
-    backend = FilesystemBackend(root_dir=str(workspace), virtual_mode=True)
-    agent = create_deep_agent(
-        model="anthropic:claude-sonnet-4-20250514",
-        system_prompt="Your prompt here",
-        backend=backend
-    )
-    return agent, None
-```
-
-### Custom Agent
-
-```python
-# In your config.py
-def get_agent():
-    import os
-    from pathlib import Path
-    from my_agent_library import MyAgent
-
-    # Read workspace from environment (set by DeepAgent Dash)
-    workspace = Path(os.getenv('DEEPAGENT_WORKSPACE_ROOT', './'))
-
-    agent = MyAgent(workspace=workspace)
-    return agent, None
+# Absolute path
+deepagent-dash run --agent /path/to/agent.py:agent_instance
 ```
 
 ### Agent Requirements
 
-Your agent must support:
-- Streaming: `agent.stream(input, stream_mode="updates")`
-- Message format: `{"messages": [{"role": "user", "content": "..."}]}`
-- Workspace access: Read `DEEPAGENT_WORKSPACE_ROOT` environment variable
+Your agent must implement:
+- **Streaming**: `agent.stream(input, stream_mode="updates")`
+- **Message format**: `{"messages": [{"role": "user", "content": "..."}]}`
+- **Workspace access** (optional): Read `DEEPAGENT_WORKSPACE_ROOT` env var
 
-### Agent Specification Format
+### Example Agent Setup
 
-Load agents from any Python file using the `path:object` pattern:
+```python
+# my_agent.py
+import os
+from deepagents import create_deep_agent
+from deepagents.backends.filesystem import FileSystemBackend
 
-```bash
-# Load 'agent' from agent.py
-deepagent-dash run --agent agent.py:agent
-
-# Load 'custom_agent' from my_agents.py
-deepagent-dash run --agent my_agents.py:custom_agent
-
-# Absolute path
-deepagent-dash run --agent /path/to/agents.py:prod_agent
+backend = FileSystemBackend(root=os.getenv('DEEPAGENT_WORKSPACE_ROOT', './'))
+my_agent = create_deep_agent(..., backend=backend)
 ```
 
-See [examples/example_agent.py](examples/example_agent.py) for examples.
+Then run: `deepagent-dash run --agent my_agent.py:my_agent`
 
-## Features
+## Canvas
 
-### Chat Interface
+The canvas displays agent-created visualizations:
 
-- Real-time streaming responses
-- Thinking process display (expandable)
-- Task progress tracking
-- Message history
-
-### File Browser
-
-- Interactive file tree with collapsible folders
-- File upload and download
-- View text files in modal
-- Download any file
-
-### Canvas
-
-The canvas displays visualizations created by the agent:
-
-- **DataFrames**: Interactive HTML tables
-- **Charts**: Matplotlib and Plotly visualizations
+- **DataFrames**: HTML tables
+- **Charts**: Plotly, Matplotlib
 - **Images**: PNG, JPG, etc.
-- **Diagrams**: Mermaid flowcharts, sequence diagrams, etc.
-- **Markdown**: Formatted text and notes
+- **Diagrams**: Mermaid (flowcharts, sequence diagrams)
+- **Markdown**: Text and notes
 
-Canvas content auto-saves to `canvas.md` and can be:
-- Exported to markdown
-- Downloaded as a file
-- Cleared for a fresh start
+Content auto-saves to `canvas.md` and can be exported or cleared.
 
 ## Development
 
-### Install for Development
-
 ```bash
+# Install from source
 git clone https://github.com/dkedar7/deepagent-dash.git
 cd deepagent-dash
 pip install -e ".[dev]"
-```
 
-### Run Tests
-
-```bash
+# Run tests
 pytest
-```
 
-### Build Package
-
-```bash
+# Build package
 python -m build
 ```
-
-### Publish to PyPI
-
-```bash
-twine upload dist/*
-```
-
-## Documentation
-
-- [CLI Usage Guide](docs/CLI_USAGE.md) - Detailed command-line documentation
-- [Architecture](docs/ARCHITECTURE.md) - Technical architecture details
-- [Examples](examples/) - Example agent configurations
 
 ## Requirements
 
 - Python 3.11+
 - Dash 2.0+
 - dash-mantine-components
-- pandas
-- plotly
-- matplotlib
-- Pillow
-- deepagents
+- pandas, plotly, matplotlib, Pillow
 - python-dotenv
+- deepagents (optional, for AI agents)
 
-## Troubleshooting
+## Links
 
-### Agent Not Working
-
-Check your `config.py`:
-- Is `ANTHROPIC_API_KEY` set in `.env` file?
-- Is DeepAgents installed? (`pip install deepagents`)
-- Does `get_agent()` return `(agent, error_message)` format?
-
-### Canvas Not Updating
-
-- Check browser console for errors
-- Verify Mermaid.js CDN is accessible
-- Check `.canvas/` folder permissions
-
-### Import Errors
-
-```bash
-# Reinstall package
-pip uninstall deepagent-dash
-pip install deepagent-dash
-
-# Or for development
-pip install -e .
-```
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+- **PyPI**: https://pypi.org/project/deepagent-dash/
+- **GitHub**: https://github.com/dkedar7/deepagent-dash
+- **Issues**: https://github.com/dkedar7/deepagent-dash/issues
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details
-
-## Acknowledgments
-
-Built with:
-- [Dash](https://dash.plotly.com/) - Web framework
-- [Plotly](https://plotly.com/) - Interactive charts
-- [Mermaid.js](https://mermaid.js.org/) - Diagrams
-- [DeepAgents](https://github.com/langchain-ai/deepagents) - AI agent framework (optional)
-
-## Links
-
-- **Homepage**: https://github.com/dkedar7/deepagent-dash
-- **Documentation**: https://github.com/dkedar7/deepagent-dash/blob/main/README.md
-- **PyPI**: https://pypi.org/project/deepagent-dash/
-- **Issues**: https://github.com/dkedar7/deepagent-dash/issues
