@@ -25,7 +25,7 @@ Usage:
     run_app(agent, workspace="~/my-workspace")
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Kedar Dabhadkar"
 __license__ = "MIT"
 

@@ -14,7 +14,11 @@ A web interface for AI agent interactions with filesystem workspace, canvas visu
 ### Installation
 
 ```bash
+# Install via pip (includes DeepAgents)
 pip install deepagent-dash
+
+# Or run directly with uvx (no installation needed)
+uvx deepagent-dash run --workspace ~/my-workspace
 ```
 
 ### Run
@@ -28,6 +32,9 @@ deepagent-dash run --workspace ~/my-workspace
 
 # Run with custom agent (optional)
 deepagent-dash run --agent my_agent.py:agent
+
+# Using uvx (one-off execution)
+uvx deepagent-dash run --workspace ~/my-workspace --port 8080
 ```
 
 Open browser to `http://localhost:8050`

@@ -34,6 +34,7 @@ def example_1_simple():
 
     except ImportError:
         print("deepagents not installed. Install with: pip install deepagents")
+        print("Or reinstall deepagent-dash: pip install deepagent-dash")
 
 # Example 2: Using agent spec (alternative approach)
 def example_2_agent_spec():

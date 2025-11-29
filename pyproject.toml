@@ -4,10 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deepagent-dash"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI Agent Web Interface with Filesystem and Canvas Visualization"
 readme = "README.md"
 requires-python = ">=3.11"
+# Make the package easily runnable with uvx
+# Usage: uvx deepagent-dash run --workspace ~/my-workspace
 license = {text = "MIT"}
 authors = [
     {name = "Kedar Dabhadkar", email = "kdabhadk@gmail.com"}
@@ -38,6 +40,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Development dependencies
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
@@ -46,6 +49,7 @@ dev = [
     "mypy>=0.950",
 ]
 
+# All optional dependencies
 all = [
     "deepagent-dash[dev]",
 ]
