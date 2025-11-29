@@ -73,16 +73,16 @@ deepagent-dash run [OPTIONS]
 ```python
 from deepagent_dash import run_app
 
-# Run with defaults
-run_app()
+# Option 1: Pass agent instance directly (recommended)
+from my_agent import MyAgent
+agent = MyAgent()
+run_app(agent, workspace="~/my-workspace")
 
-# Run with custom settings (all optional)
-run_app(
-    workspace="~/my-workspace",
-    agent_spec="my_agent.py:agent",  # optional
-    port=8080,                        # optional
-    debug=True                        # optional
-)
+# Option 2: Use agent spec
+run_app(agent_spec="my_agent.py:agent", workspace="~/my-workspace")
+
+# Option 3: Manual mode (no agent)
+run_app(workspace="~/my-workspace", port=8080, debug=True)
 ```
 
 ## Agent Integration
