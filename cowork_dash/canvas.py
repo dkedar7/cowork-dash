@@ -52,7 +52,7 @@ def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
 
         return {
             "type": "matplotlib",
-            "file": f".canvas/{filename}",
+            "file": filename,  # Relative to .canvas/ directory where canvas.md lives
             "data": img_base64  # Keep for current session rendering
         }
 
@@ -67,7 +67,7 @@ def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
 
         return {
             "type": "plotly",
-            "file": f".canvas/{filename}",
+            "file": filename,  # Relative to .canvas/ directory where canvas.md lives
             "data": plotly_data  # Keep for current session rendering
         }
 
@@ -88,7 +88,7 @@ def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
 
         return {
             "type": "image",
-            "file": f".canvas/{filename}",
+            "file": filename,  # Relative to .canvas/ directory where canvas.md lives
             "data": img_base64  # Keep for current session rendering
         }
 
@@ -102,7 +102,7 @@ def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
 
         return {
             "type": "plotly",
-            "file": f".canvas/{filename}",
+            "file": filename,  # Relative to .canvas/ directory where canvas.md lives
             "data": obj  # Keep for current session rendering
         }
 
@@ -138,8 +138,12 @@ def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
 
 def export_canvas_to_markdown(canvas_items: List[Dict], workspace_root: Path, output_path: str = None):
     """Export canvas to markdown file with file references."""
+    # Ensure .canvas directory exists
+    canvas_dir = workspace_root / ".canvas"
+    canvas_dir.mkdir(exist_ok=True)
+
     if not output_path:
-        output_path = workspace_root / "canvas.md"
+        output_path = canvas_dir / "canvas.md"
 
     lines = [
         "# Canvas Export",
@@ -190,7 +194,7 @@ def export_canvas_to_markdown(canvas_items: List[Dict], workspace_root: Path, ou
 def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -> List[Dict]:
     """Load canvas from markdown file and referenced assets."""
     if not markdown_path:
-        markdown_path = workspace_root / "canvas.md"
+        markdown_path = workspace_root / ".canvas" / "canvas.md"
     else:
         markdown_path = Path(markdown_path)
 
@@ -213,8 +217,8 @@ def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -
             'content': match.group(1).strip()
         })
 
-    # Find all plotly blocks
-    for match in re.finditer(r'```plotly\s*\n(.canvas/[^\n]+)\n```', content, re.DOTALL):
+    # Find all plotly blocks (supports both relative filenames and legacy .canvas/ paths)
+    for match in re.finditer(r'```plotly\s*\n([^\n]+)\n```', content, re.DOTALL):
         start, end = match.span()
         code_blocks.append({
             'type': 'plotly_file',
@@ -223,15 +227,18 @@ def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -
             'content': match.group(1).strip()
         })
 
-    # Find all image references
-    for match in re.finditer(r'!\[.*?\]\((.canvas/[^)]+)\)', content):
+    # Find all image references (supports both relative filenames and legacy .canvas/ paths)
+    for match in re.finditer(r'!\[.*?\]\(([^)]+)\)', content):
         start, end = match.span()
-        code_blocks.append({
-            'type': 'image_file',
-            'start': start,
-            'end': end,
-            'content': match.group(1)
-        })
+        file_ref = match.group(1)
+        # Skip data: URLs (base64 embedded images)
+        if not file_ref.startswith('data:'):
+            code_blocks.append({
+                'type': 'image_file',
+                'start': start,
+                'end': end,
+                'content': file_ref
+            })
 
     # Find all HTML tables
     for match in re.finditer(r'<table.*?</table>', content, re.DOTALL):
@@ -275,22 +282,24 @@ def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -
                 "data": block['content']
             })
         elif block['type'] == 'plotly_file':
-            file_path = workspace_root / block['content']
+            file_ref = block['content']
+            file_path = markdown_path.parent / file_ref
             if file_path.exists():
                 plotly_data = json.loads(file_path.read_text())
                 canvas_items.append({
                     "type": "plotly",
-                    "file": block['content'],
+                    "file": file_ref,
                     "data": plotly_data
                 })
         elif block['type'] == 'image_file':
-            file_path = workspace_root / block['content']
+            file_ref = block['content']
+            file_path = markdown_path.parent / file_ref
             if file_path.exists():
                 with open(file_path, 'rb') as f:
                     img_base64 = base64.b64encode(f.read()).decode('utf-8')
                 canvas_items.append({
                     "type": "image",
-                    "file": block['content'],
+                    "file": file_ref,
                     "data": img_base64
                 })
         elif block['type'] == 'table':

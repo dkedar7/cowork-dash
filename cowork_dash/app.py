@@ -306,6 +306,45 @@ def _run_agent_stream(message: str):
                                         except Exception as e:
                                             print(f"Failed to export canvas: {e}")
 
+                                elif last_msg.name in ('execute_cell', 'execute_all_cells'):
+                                    # Extract canvas_items from cell execution results
+                                    content = last_msg.content
+                                    canvas_items_to_add = []
+
+                                    if isinstance(content, str):
+                                        try:
+                                            parsed = json.loads(content)
+                                            # execute_cell returns a dict, execute_all_cells returns a list
+                                            if isinstance(parsed, dict):
+                                                canvas_items_to_add = parsed.get('canvas_items', [])
+                                            elif isinstance(parsed, list):
+                                                # execute_all_cells returns list of results
+                                                for result in parsed:
+                                                    if isinstance(result, dict):
+                                                        canvas_items_to_add.extend(result.get('canvas_items', []))
+                                        except:
+                                            pass
+                                    elif isinstance(content, dict):
+                                        canvas_items_to_add = content.get('canvas_items', [])
+                                    elif isinstance(content, list):
+                                        for result in content:
+                                            if isinstance(result, dict):
+                                                canvas_items_to_add.extend(result.get('canvas_items', []))
+
+                                    # Add any canvas items found
+                                    if canvas_items_to_add:
+                                        with _agent_state_lock:
+                                            for item in canvas_items_to_add:
+                                                if isinstance(item, dict) and item.get('type'):
+                                                    _agent_state["canvas"].append(item)
+                                            _agent_state["last_update"] = time.time()
+
+                                            # Export to markdown file
+                                            try:
+                                                export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
+                                            except Exception as e:
+                                                print(f"Failed to export canvas: {e}")
+
                             elif hasattr(last_msg, 'content'):
                                 content = last_msg.content
                                 response_text = ""
@@ -1010,7 +1049,7 @@ def update_canvas_content(n_intervals, canvas_clicks):
     prevent_initial_call=True
 )
 def clear_canvas(n_clicks):
-    """Clear the canvas and archive the current canvas.md with a timestamp."""
+    """Clear the canvas and archive the .canvas folder with a timestamp."""
     if not n_clicks:
         raise PreventUpdate
 
@@ -1018,17 +1057,7 @@ def clear_canvas(n_clicks):
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Archive existing canvas.md file if it exists
-    canvas_file = WORKSPACE_ROOT / "canvas.md"
-    if canvas_file.exists():
-        try:
-            archive_path = WORKSPACE_ROOT / f"canvas_{timestamp}.md"
-            canvas_file.rename(archive_path)
-            print(f"Archived canvas to {archive_path}")
-        except Exception as e:
-            print(f"Failed to archive canvas.md: {e}")
-
-    # Archive .canvas folder if it exists
+    # Archive .canvas folder if it exists (contains canvas.md and all assets)
     canvas_dir = WORKSPACE_ROOT / ".canvas"
     if canvas_dir.exists() and canvas_dir.is_dir():
         try:

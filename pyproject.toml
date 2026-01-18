@@ -49,9 +49,15 @@ dev = [
     "mypy>=0.950",
 ]
 
+# IPython for enhanced code execution (optional but recommended)
+ipython = [
+    "ipython>=8.0.0",
+]
+
 # All optional dependencies
 all = [
     "cowork-dash[dev]",
+    "cowork-dash[ipython]",
 ]
 
 [project.urls]
