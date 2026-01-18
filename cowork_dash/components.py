@@ -232,6 +232,8 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                             "fontSize": "14px",
                             "lineHeight": "1.6",
                             "color": colors["text_primary"],
+                            "wordBreak": "break-word",
+                            "overflowWrap": "break-word",
                         }
                     )
                 ], style={
@@ -240,6 +242,8 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                     "background": "#ffffff",
                     "borderRadius": "6px",
                     "border": f"1px solid {colors['border_light']}",
+                    "maxWidth": "100%",
+                    "overflow": "hidden",
                 })
             )
 
@@ -261,6 +265,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                     "borderRadius": "6px",
                     "border": f"1px solid {colors['border_light']}",
                     "overflowX": "auto",
+                    "maxWidth": "100%",
                 })
             )
 
@@ -272,8 +277,10 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                         src=f"data:image/png;base64,{img_data}",
                         style={
                             "maxWidth": "100%",
+                            "width": "100%",
                             "height": "auto",
                             "borderRadius": "4px",
+                            "objectFit": "contain",
                         }
                     )
                 ], style={
@@ -283,6 +290,8 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                     "borderRadius": "6px",
                     "border": f"1px solid {colors['border_light']}",
                     "textAlign": "center",
+                    "maxWidth": "100%",
+                    "overflow": "hidden",
                 })
             )
 
@@ -292,11 +301,13 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                 html.Div([
                     dcc.Graph(
                         figure=fig_data,
-                        style={"height": "500px"},
+                        style={"height": "400px", "width": "100%"},
+                        responsive=True,
                         config={
                             "displayModeBar": True,
                             "displaylogo": False,
                             "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                            "responsive": True,
                         }
                     )
                 ], style={
@@ -305,6 +316,8 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                     "background": "#ffffff",
                     "borderRadius": "6px",
                     "border": f"1px solid {colors['border_light']}",
+                    "maxWidth": "100%",
+                    "overflow": "hidden",
                 })
             )
 
@@ -315,12 +328,13 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                 html.Div([
                     html.Div(
                         mermaid_code,
-                        className="mermaid-diagram mermaid",
+                        className="mermaid-diagram",
                         style={
                             "textAlign": "center",
                             "padding": "20px",
                             "width": "100%",
                             "overflow": "auto",
+                            "whiteSpace": "pre",  # Preserve whitespace for mermaid parsing
                         }
                     )
                 ], style={
@@ -330,7 +344,8 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                     "borderRadius": "6px",
                     "border": f"1px solid {colors['border_light']}",
                     "textAlign": "center",
-                    "width": "100%",
+                    "maxWidth": "100%",
+                    "overflow": "auto",
                 })
             )
 
@@ -345,6 +360,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                             "color": colors["text_secondary"],
                             "display": "block",
                             "whiteSpace": "pre-wrap",
+                            "wordBreak": "break-word",
                         }
                     )
                 ], style={
@@ -353,7 +369,12 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                     "background": "#ffffff",
                     "borderRadius": "6px",
                     "border": f"1px solid {colors['border_light']}",
+                    "maxWidth": "100%",
+                    "overflow": "auto",
                 })
             )
 
-    return html.Div(rendered_items)
+    return html.Div(rendered_items, style={
+        "maxWidth": "100%",
+        "overflow": "hidden",
+    })

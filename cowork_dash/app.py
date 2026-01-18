@@ -1042,6 +1042,30 @@ def update_canvas_content(n_intervals, canvas_clicks):
 
 
 
+# Refresh canvas callback - reload from .canvas/canvas.md
+@app.callback(
+    Output("canvas-content", "children", allow_duplicate=True),
+    Input("refresh-canvas-btn", "n_clicks"),
+    prevent_initial_call=True
+)
+def refresh_canvas(n_clicks):
+    """Refresh canvas by reloading from .canvas/canvas.md file."""
+    if not n_clicks:
+        raise PreventUpdate
+
+    global _agent_state
+
+    # Reload canvas from markdown file
+    canvas_items = load_canvas_from_markdown(WORKSPACE_ROOT)
+
+    # Update agent state with reloaded canvas
+    with _agent_state_lock:
+        _agent_state["canvas"] = canvas_items
+
+    # Render the canvas items
+    return render_canvas_items(canvas_items, COLORS)
+
+
 # Clear canvas callback
 @app.callback(
     Output("canvas-content", "children", allow_duplicate=True),

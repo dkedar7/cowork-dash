@@ -239,9 +239,20 @@ Let's get started!"""
                             "padding": "20px",
                             "background": "#ffffff",  # White background like a note
                         }),
-                        # Clear canvas button (floating at bottom)
+                        # Canvas action buttons (floating at bottom)
                         html.Div([
-                            html.Button("Clear Canvas", id="clear-canvas-btn", style={
+                            html.Button("Refresh", id="refresh-canvas-btn", style={
+                                "background": colors["accent"],
+                                "color": "#ffffff",
+                                "border": "none",
+                                "fontSize": "13px",
+                                "fontWeight": "500",
+                                "cursor": "pointer",
+                                "padding": "8px 16px",
+                                "borderRadius": "4px",
+                                "marginRight": "8px",
+                            }),
+                            html.Button("Clear", id="clear-canvas-btn", style={
                                 "background": colors["error"],
                                 "color": "#ffffff",
                                 "border": "none",

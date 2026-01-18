@@ -219,3 +219,6 @@ tsconfig.tsbuildinfo
 *.bundled.js
 jupyter_deepagents/labextension
 .yarn/
+
+# Canvas directory
+.canvas*/

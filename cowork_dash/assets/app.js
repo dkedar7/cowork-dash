@@ -46,13 +46,20 @@ if (typeof window.mermaidObserver === 'undefined') {
         renderMermaid();
     });
 
-    // Start observing once the canvas is available
-    setTimeout(function() {
+    // Start observing once the canvas is available - retry until found
+    function attachMermaidObserver() {
         const canvasContent = document.getElementById('canvas-content');
         if (canvasContent) {
             window.mermaidObserver.observe(canvasContent, { childList: true, subtree: true });
+            console.log('Mermaid observer attached to canvas-content');
+            // Run initial render in case content is already there
+            renderMermaid();
+        } else {
+            // Retry after a short delay
+            setTimeout(attachMermaidObserver, 500);
         }
-    }, 1000);
+    }
+    attachMermaidObserver();
 }
 
 // Resizable split pane - improved reliability

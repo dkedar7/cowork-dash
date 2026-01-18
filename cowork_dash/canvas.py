@@ -114,10 +114,6 @@ def parse_canvas_object(obj: Any, workspace_root: Path) -> Dict[str, Any]:
             match = re.search(r'```mermaid\s*\n?(.*?)```', obj, re.DOTALL | re.IGNORECASE)
             if match:
                 mermaid_code = match.group(1).strip()
-                # Ensure proper formatting - each arrow should be on its own line
-                # Replace inline arrows with newlined versions
-                mermaid_code = re.sub(r'\s+(-->)\s+', r'\n\1 ', mermaid_code)
-                mermaid_code = re.sub(r'\s+(--\|[^|]+\|)\s+', r'\n\1 ', mermaid_code)
                 return {
                     "type": "mermaid",
                     "data": mermaid_code
