@@ -112,6 +112,6 @@ agent = create_deep_agent(
         get_notebook_canvas_items,
         clear_notebook_canvas_items,
     ],
-    interrupt_on=dict(bash=True),
+    # interrupt_on=dict(bash=True),
     checkpointer=InMemorySaver()
 )

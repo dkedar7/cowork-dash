@@ -16,47 +16,41 @@
                 font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
                 background: var(--mantine-color-gray-0, #f8f9fa);
                 color: var(--mantine-color-text, #202124);
-                line-height: 1.5;
+                line-height: 1.4;
+                font-size: 15px;
             }
             [data-mantine-color-scheme="dark"] body {
                 background: var(--mantine-color-dark-7, #1a1b1e);
                 color: var(--mantine-color-dark-0, #c1c2c5);
             }
-            code, pre, .mono { font-family: 'IBM Plex Mono', monospace; }
-            ::-webkit-scrollbar { width: 8px; height: 8px; }
-            ::-webkit-scrollbar-track { background: #f1f3f4; }
-            ::-webkit-scrollbar-thumb { background: #dadce0; }
-            ::-webkit-scrollbar-thumb:hover { background: #80868b; }
-            .file-item:hover { background: var(--mantine-color-gray-1, #e8eaed) !important; }
-            .file-item:hover .download-btn { opacity: 1 !important; }
-            .folder-header:hover { background: var(--mantine-color-gray-1, #e8eaed) !important; }
+            code, pre, .mono { font-family: 'IBM Plex Mono', monospace; font-size: 14px; }
             @keyframes slideIn {
-                from { opacity: 0; transform: translateY(8px); }
+                from { opacity: 0; transform: translateY(4px); }
                 to { opacity: 1; transform: translateY(0); }
             }
-            .message-enter { animation: slideIn 0.2s ease forwards; }
+            .message-enter { animation: slideIn 0.15s ease forwards; }
             @keyframes pulse {
                 0%, 100% { opacity: 1; }
                 50% { opacity: 0.5; }
             }
-            .thinking-pulse { animation: pulse 1.5s ease-in-out infinite; }
+            .thinking-pulse { animation: pulse 1.2s ease-in-out infinite; }
             @keyframes dots {
                 0%, 20% { content: '.'; }
                 40% { content: '..'; }
                 60%, 100% { content: '...'; }
             }
-            .loading-dots::after { content: ''; animation: dots 1.5s steps(1, end) infinite; }
+            .loading-dots::after { content: ''; animation: dots 1.2s steps(1, end) infinite; }
             .send-btn:hover:not(:disabled) { background: #1557b0 !important; }
-            .chat-input:focus { outline: none; border-color: #1a73e8 !important; box-shadow: 0 0 0 2px #e8f0fe !important; }
-            .todo-item { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
+            .chat-input:focus { outline: none; border-color: #1a73e8 !important; box-shadow: 0 0 0 1px #e8f0fe !important; }
+            .todo-item { display: flex; align-items: flex-start; gap: 5px; padding: 3px 0; }
             details summary { list-style: none; }
             details summary::-webkit-details-marker { display: none; }
             details summary::before {
                 content: '▶';
                 position: absolute;
-                left: 4px;
-                transition: transform 0.2s;
-                font-size: 9px;
+                left: 8px;
+                transition: transform 0.15s;
+                font-size: 10px;
             }
             details[open] summary::before {
                 transform: rotate(90deg);
@@ -68,90 +62,87 @@
                 width: 4px;
                 cursor: col-resize;
                 background: transparent;
-                transition: background 0.2s;
+                transition: background 0.15s;
                 position: relative;
             }
             .resize-handle:hover {
-                background: #1a73e8;
+                background: #9ca3af;
             }
             .resize-handle:active {
                 background: #1557b0;
             }
             .mermaid-diagram {
-                max-height: 80vh;
+                max-height: 60vh;
                 overflow: auto;
             }
             .mermaid-diagram svg {
                 max-width: 100%;
                 height: auto;
-                max-height: 80vh;
+                max-height: 60vh;
             }
-            /* Chat message markdown styling */
+            /* Chat message markdown styling - compact */
             #chat-messages .markdown {
-                padding: 4px 0;
+                padding: 3px 0;
             }
             #chat-messages h2 {
                 font-size: 16px;
                 font-weight: 600;
-                margin: 20px 0 12px 0;
+                margin: 10px 0 5px 0;
                 color: var(--mantine-color-text, #202124);
             }
             #chat-messages h3 {
                 font-size: 15px;
                 font-weight: 600;
-                margin: 16px 0 10px 0;
+                margin: 8px 0 4px 0;
                 color: var(--mantine-color-text, #202124);
             }
             #chat-messages ul, #chat-messages ol {
-                margin: 12px 0;
-                padding-left: 28px;
-                line-height: 1.8;
+                margin: 5px 0;
+                padding-left: 20px;
+                line-height: 1.5;
             }
             #chat-messages li {
-                margin: 6px 0;
+                margin: 3px 0;
             }
             #chat-messages p {
-                margin: 12px 0;
-                line-height: 1.7;
+                margin: 5px 0;
+                line-height: 1.5;
             }
             #chat-messages strong {
                 font-weight: 600;
-                color: var(--mantine-color-blue-6, #1a73e8);
+                color: var(--mantine-color-text, #202124);
             }
             #chat-messages code {
                 background: var(--mantine-color-gray-1, #f1f3f4);
-                padding: 2px 6px;
+                padding: 1px 5px;
                 border-radius: 3px;
                 font-family: 'IBM Plex Mono', monospace;
-                font-size: 13px;
+                font-size: 14px;
             }
             #chat-messages pre {
                 background: var(--mantine-color-gray-1, #f1f3f4);
-                padding: 12px;
-                border-radius: 6px;
+                padding: 10px;
+                border-radius: 4px;
                 overflow-x: auto;
-                margin: 12px 0;
+                margin: 5px 0;
             }
             #chat-messages pre code {
                 background: none;
                 padding: 0;
             }
-            /* Dark mode styles using DMC color scheme */
-            [data-mantine-color-scheme="dark"] ::-webkit-scrollbar-track { background: var(--mantine-color-dark-6); }
-            [data-mantine-color-scheme="dark"] ::-webkit-scrollbar-thumb { background: var(--mantine-color-dark-4); }
-            [data-mantine-color-scheme="dark"] ::-webkit-scrollbar-thumb:hover { background: var(--mantine-color-dark-3); }
+            /* Dark mode styles */
             [data-mantine-color-scheme="dark"] .file-item:hover { background: var(--mantine-color-dark-5) !important; }
             [data-mantine-color-scheme="dark"] .folder-header:hover { background: var(--mantine-color-dark-5) !important; }
             [data-mantine-color-scheme="dark"] details summary:hover { background: var(--mantine-color-dark-5) !important; }
             [data-mantine-color-scheme="dark"] .send-btn:hover:not(:disabled) { background: var(--mantine-color-blue-7) !important; }
-            [data-mantine-color-scheme="dark"] .chat-input:focus { border-color: var(--mantine-color-blue-6) !important; box-shadow: 0 0 0 2px var(--mantine-color-blue-9) !important; }
+            [data-mantine-color-scheme="dark"] .chat-input:focus { border-color: var(--mantine-color-blue-6) !important; box-shadow: 0 0 0 1px var(--mantine-color-blue-9) !important; }
             [data-mantine-color-scheme="dark"] #chat-messages h2,
             [data-mantine-color-scheme="dark"] #chat-messages h3 { color: var(--mantine-color-dark-0); }
-            [data-mantine-color-scheme="dark"] #chat-messages strong { color: var(--mantine-color-blue-4); }
+            [data-mantine-color-scheme="dark"] #chat-messages strong { color: var(--mantine-color-dark-0); }
             [data-mantine-color-scheme="dark"] #chat-messages code { background: var(--mantine-color-dark-6); }
             [data-mantine-color-scheme="dark"] #chat-messages pre { background: var(--mantine-color-dark-6); }
-            [data-mantine-color-scheme="dark"] .resize-handle:hover { background: var(--mantine-color-blue-5); }
-            [data-mantine-color-scheme="dark"] .resize-handle:active { background: var(--mantine-color-blue-4); }
+            [data-mantine-color-scheme="dark"] .resize-handle:hover { background: var(--mantine-color-dark-3); }
+            [data-mantine-color-scheme="dark"] .resize-handle:active { background: var(--mantine-color-dark-2); }
         </style>
     </head>
     <body>

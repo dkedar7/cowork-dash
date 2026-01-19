@@ -13,15 +13,14 @@ def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: 
     # Render content as markdown for assistant messages, plain text for user
     if is_user:
         content_element = html.Div(content, style={
-            "fontSize": "14px", "lineHeight": "1.6", "whiteSpace": "pre-wrap",
+            "fontSize": "15px", "lineHeight": "1.5", "whiteSpace": "pre-wrap",
         })
     else:
         content_element = dcc.Markdown(
             content,
             style={
-                "fontSize": "14px",
-                "lineHeight": "1.6",
-                "marginLeft": "8px",
+                "fontSize": "15px",
+                "lineHeight": "1.5",
             }
         )
 
@@ -36,15 +35,15 @@ def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: 
         html.Div([
             html.Span("You" if is_user else "Agent", className="message-role-user" if is_user else "message-role-agent", style={
                 "fontSize": "12px", "fontWeight": "500",
-                "textTransform": "uppercase", "letterSpacing": "0.5px",
+                "textTransform": "uppercase", "letterSpacing": "0.4px",
             }),
             html.Span(datetime.now().strftime("%H:%M"), className="message-time", style={
-                "fontSize": "11px", "marginLeft": "8px",
+                "fontSize": "12px", "marginLeft": "8px",
             })
-        ], style={"marginBottom": "8px"}),
+        ], style={"marginBottom": "5px"}),
         content_element
     ], className=message_class, style={
-        "padding": "16px",
+        "padding": "12px 15px",
     })
 
 
@@ -56,11 +55,11 @@ def format_loading(colors: Dict):
                 "fontSize": "12px", "fontWeight": "500",
                 "textTransform": "uppercase",
             }),
-        ], style={"marginBottom": "8px"}),
+        ], style={"marginBottom": "5px"}),
         html.Span("Thinking", className="loading-dots thinking-pulse thinking-text", style={
-            "fontSize": "14px", "fontWeight": "500",
+            "fontSize": "15px", "fontWeight": "500",
         })
-    ], className="chat-message chat-message-loading")
+    ], className="chat-message chat-message-loading", style={"padding": "12px 15px"})
 
 
 def format_thinking(thinking_text: str, colors: Dict):
@@ -69,19 +68,19 @@ def format_thinking(thinking_text: str, colors: Dict):
         return None
 
     return html.Details([
-        html.Summary("🧠 Thinking", className="details-summary details-summary-thinking"),
+        html.Summary("Thinking", className="details-summary details-summary-thinking"),
         html.Div(thinking_text, className="details-content details-content-thinking", style={
             "whiteSpace": "pre-wrap",
         })
     ], className="chat-details", style={
-        "marginBottom": "8px",
+        "marginBottom": "4px",
     })
 
 
 def format_todos(todos: Dict, colors: Dict):
     """Format todo list. Handles dict format where keys are task names and values are statuses."""
     if not todos:
-        return html.Span("No tasks", style={"color": colors["text_muted"], "fontStyle": "italic", "fontSize": "13px"})
+        return html.Span("No tasks", style={"color": colors["text_muted"], "fontStyle": "italic", "fontSize": "14px"})
 
     items = []
 
@@ -121,12 +120,12 @@ def format_todos(todos: Dict, colors: Dict):
             items.append(html.Div([
                 checkbox,
                 html.Span(task_name, style={
-                    "fontSize": "13px",
+                    "fontSize": "14px",
                     "color": text_color,
                     "textDecoration": text_decoration,
                     "fontWeight": font_weight if status == "in_progress" else "normal",
                 })
-            ], style={"display": "flex", "alignItems": "center", "marginBottom": "6px"}))
+            ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"}))
 
     return html.Div(items)
 
@@ -139,10 +138,10 @@ def format_todos_inline(todos: Dict, colors: Dict):
     todo_items = format_todos(todos, colors)
 
     return html.Details([
-        html.Summary("📋 Task Progress", className="details-summary details-summary-todo"),
+        html.Summary("Tasks", className="details-summary details-summary-todo"),
         html.Div(todo_items, className="details-content details-content-todo")
     ], open=True, className="chat-details", style={
-        "marginBottom": "8px",
+        "marginBottom": "4px",
     })
 
 
@@ -159,28 +158,27 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
     tool_result = tool_call.get("result")
     tool_status = tool_call.get("status", "pending")
 
-    # Status indicator
+    # Status indicator - use CSS classes for theme awareness
     if tool_status == "success":
         status_icon = "✓"
-        status_color = colors.get("todo", "#34a853")
-        border_color = colors.get("todo", "#34a853")
+        status_class = "tool-call-success"
+        icon_class = "tool-call-icon-success"
     elif tool_status == "error":
         status_icon = "✗"
-        status_color = colors.get("error", "#ea4335")
-        border_color = colors.get("error", "#ea4335")
+        status_class = "tool-call-error"
+        icon_class = "tool-call-icon-error"
     elif tool_status == "running":
         status_icon = "◐"
-        status_color = colors.get("warning", "#fbbc04")
-        border_color = colors.get("warning", "#fbbc04")
+        status_class = "tool-call-running"
+        icon_class = "tool-call-icon-running"
     else:  # pending
         status_icon = "○"
-        status_color = colors.get("text_muted", "#80868b")
-        border_color = colors.get("text_muted", "#80868b")
+        status_class = "tool-call-pending"
+        icon_class = "tool-call-icon-pending"
 
     # Format args for display (truncate if too long)
     args_display = ""
     if tool_args:
-        import json
         try:
             args_str = json.dumps(tool_args, indent=2)
             if len(args_str) > 500:
@@ -189,51 +187,23 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
         except:
             args_display = str(tool_args)[:500]
 
-    # Build the tool call display
+    # Build the tool call display using CSS classes
     tool_header = html.Div([
-        html.Span(status_icon, style={
-            "marginRight": "8px",
-            "color": status_color,
+        html.Span(status_icon, className=icon_class, style={
+            "marginRight": "10px",
             "fontWeight": "bold",
         }),
-        html.Span(f"Tool: ", style={
-            "fontSize": "11px",
-            "color": colors.get("text_muted", "#80868b"),
-        }),
-        html.Span(tool_name, style={
-            "fontSize": "12px",
-            "fontWeight": "600",
-            "color": colors.get("text_primary", "#202124"),
-            "fontFamily": "'IBM Plex Mono', monospace",
-        }),
+        html.Span("Tool: ", className="tool-call-label"),
+        html.Span(tool_name, className="tool-call-name"),
     ], style={"display": "flex", "alignItems": "center"})
 
     # Arguments section (collapsible)
     args_section = None
     if args_display:
         args_section = html.Details([
-            html.Summary("Arguments", style={
-                "fontSize": "10px",
-                "color": colors.get("text_muted", "#80868b"),
-                "cursor": "pointer",
-                "marginTop": "4px",
-                "paddingLeft": "18px",
-                "position": "relative",
-            }),
-            html.Pre(args_display, style={
-                "fontSize": "10px",
-                "color": colors.get("text_secondary", "#5f6368"),
-                "background": colors.get("bg_tertiary", "#f1f3f4"),
-                "padding": "8px",
-                "borderRadius": "4px",
-                "marginTop": "4px",
-                "marginLeft": "18px",
-                "overflow": "auto",
-                "maxHeight": "150px",
-                "whiteSpace": "pre-wrap",
-                "wordBreak": "break-word",
-            })
-        ], style={"marginTop": "4px"})
+            html.Summary("Arguments", className="tool-call-summary"),
+            html.Pre(args_display, className="tool-call-args")
+        ], style={"marginTop": "5px"})
 
     # Result section (collapsible, only if completed)
     result_section = None
@@ -243,28 +213,9 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
             result_display = result_display[:500] + "..."
 
         result_section = html.Details([
-            html.Summary("Result", style={
-                "fontSize": "10px",
-                "color": colors.get("text_muted", "#80868b"),
-                "cursor": "pointer",
-                "marginTop": "4px",
-                "paddingLeft": "18px",
-                "position": "relative",
-            }),
-            html.Pre(result_display, style={
-                "fontSize": "10px",
-                "color": colors.get("text_secondary", "#5f6368"),
-                "background": colors.get("bg_tertiary", "#f1f3f4"),
-                "padding": "8px",
-                "borderRadius": "4px",
-                "marginTop": "4px",
-                "marginLeft": "18px",
-                "overflow": "auto",
-                "maxHeight": "150px",
-                "whiteSpace": "pre-wrap",
-                "wordBreak": "break-word",
-            })
-        ], style={"marginTop": "4px"})
+            html.Summary("Result", className="tool-call-summary"),
+            html.Pre(result_display, className="tool-call-result")
+        ], style={"marginTop": "5px"})
 
     children = [tool_header]
     if args_section:
@@ -272,13 +223,7 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
     if result_section:
         children.append(result_section)
 
-    return html.Div(children, style={
-        "padding": "8px 12px",
-        "background": colors.get("bg_secondary", "#f8f9fa"),
-        "borderLeft": f"2px solid {border_color}",
-        "marginBottom": "4px",
-        "fontSize": "12px",
-    })
+    return html.Div(children, className=f"tool-call {status_class}")
 
 
 def format_tool_calls_inline(tool_calls: List[Dict], colors: Dict):
@@ -298,13 +243,13 @@ def format_tool_calls_inline(tool_calls: List[Dict], colors: Dict):
 
     # Summary text and class
     if running > 0:
-        summary_text = f"🔧 Tool Calls ({completed}/{total} completed, {running} running)"
+        summary_text = f"Tools ({completed}/{total}, {running} running)"
         summary_class = "details-summary details-summary-warning"
     elif completed == total:
-        summary_text = f"🔧 Tool Calls ({total} completed)"
+        summary_text = f"Tools ({total} done)"
         summary_class = "details-summary details-summary-success"
     else:
-        summary_text = f"🔧 Tool Calls ({completed}/{total})"
+        summary_text = f"Tools ({completed}/{total})"
         summary_class = "details-summary details-summary-muted"
 
     tool_elements = [
@@ -315,10 +260,10 @@ def format_tool_calls_inline(tool_calls: List[Dict], colors: Dict):
     return html.Details([
         html.Summary(summary_text, className=summary_class),
         html.Div(tool_elements, style={
-            "paddingLeft": "12px",
+            "paddingLeft": "10px",
         })
-    ], open=True, className="chat-details", style={
-        "marginBottom": "8px",
+    ], open=False, className="chat-details", style={
+        "marginBottom": "5px",
     })
 
 
@@ -337,17 +282,16 @@ def format_interrupt(interrupt_data: Dict, colors: Dict):
 
     children = [
         html.Div([
-            html.Span("⚠️", style={"marginRight": "8px", "fontSize": "16px"}),
-            html.Span("Human Input Required", style={
-                "fontSize": "13px",
+            html.Span("Action Required", className="interrupt-title", style={
+                "fontSize": "14px",
                 "fontWeight": "600",
-                "color": colors.get("warning", "#fbbc04"),
+                "textTransform": "uppercase",
+                "letterSpacing": "0.5px",
             })
-        ], style={"marginBottom": "12px", "display": "flex", "alignItems": "center"}),
-        html.P(message, style={
-            "fontSize": "13px",
-            "color": colors.get("text_primary", "#202124"),
-            "marginBottom": "12px",
+        ], style={"marginBottom": "12px"}),
+        html.P(message, className="interrupt-message", style={
+            "fontSize": "15px",
+            "marginBottom": "15px",
         })
     ]
 
@@ -359,36 +303,32 @@ def format_interrupt(interrupt_data: Dict, colors: Dict):
             action_args = action.get("args", {})
 
             action_children = [
-                html.Span(f"Tool: ", style={
-                    "fontSize": "11px",
-                    "color": colors.get("text_muted", "#80868b"),
+                html.Span("Tool: ", className="interrupt-tool-label", style={
+                    "fontSize": "14px",
                 }),
-                html.Span(f"{action_tool}", style={
-                    "fontSize": "12px",
+                html.Span(f"{action_tool}", className="interrupt-tool-name", style={
+                    "fontSize": "15px",
                     "fontWeight": "600",
                     "fontFamily": "'IBM Plex Mono', monospace",
-                    "color": colors.get("warning", "#fbbc04"),
                 }),
             ]
 
-            children.append(html.Div(action_children, style={"marginBottom": "8px"}))
+            children.append(html.Div(action_children, style={"marginBottom": "10px"}))
 
             # Show args for bash command specifically
             if action_tool == "bash" and action_args:
                 command = action_args.get("command", "")
                 if command:
                     children.append(html.Div([
-                        html.Span("Command: ", style={
-                            "fontSize": "11px",
-                            "color": colors.get("text_muted", "#80868b"),
+                        html.Span("Command: ", className="interrupt-tool-label", style={
+                            "fontSize": "14px",
                         }),
-                        html.Pre(command, style={
-                            "fontSize": "12px",
+                        html.Pre(command, className="interrupt-command", style={
+                            "fontSize": "15px",
                             "fontFamily": "'IBM Plex Mono', monospace",
-                            "background": colors.get("bg_tertiary", "#f1f3f4"),
-                            "padding": "8px 12px",
-                            "borderRadius": "4px",
-                            "margin": "4px 0 12px 0",
+                            "padding": "10px 15px",
+                            "borderRadius": "5px",
+                            "margin": "5px 0 15px 0",
                             "whiteSpace": "pre-wrap",
                             "wordBreak": "break-all",
                         })
@@ -398,14 +338,13 @@ def format_interrupt(interrupt_data: Dict, colors: Dict):
                 args_str = json.dumps(action_args, indent=2)
                 if len(args_str) > 200:
                     args_str = args_str[:200] + "..."
-                children.append(html.Pre(args_str, style={
-                    "fontSize": "11px",
+                children.append(html.Pre(args_str, className="interrupt-args", style={
+                    "fontSize": "14px",
                     "fontFamily": "'IBM Plex Mono', monospace",
-                    "background": colors.get("bg_tertiary", "#f1f3f4"),
-                    "padding": "8px",
-                    "borderRadius": "4px",
-                    "margin": "4px 0 12px 0",
-                    "maxHeight": "100px",
+                    "padding": "10px",
+                    "borderRadius": "5px",
+                    "margin": "5px 0 15px 0",
+                    "maxHeight": "125px",
                     "overflow": "auto",
                 }))
 
@@ -415,78 +354,45 @@ def format_interrupt(interrupt_data: Dict, colors: Dict):
             id="interrupt-input",
             type="text",
             placeholder="Type your response...",
+            className="interrupt-input",
             style={
                 "width": "100%",
-                "padding": "10px 12px",
-                "border": f"1px solid {colors.get('border', '#dadce0')}",
-                "borderRadius": "4px",
-                "fontSize": "13px",
-                "marginBottom": "8px",
+                "padding": "12px 15px",
+                "borderRadius": "5px",
+                "fontSize": "16px",
+                "marginBottom": "10px",
             }
         ),
         html.Div([
-            html.Button("Approve", id="interrupt-approve-btn", n_clicks=0, style={
-                "background": colors.get("todo", "#34a853"),
-                "color": "#ffffff",
-                "border": "none",
-                "padding": "8px 16px",
-                "borderRadius": "4px",
-                "fontSize": "12px",
-                "fontWeight": "500",
-                "cursor": "pointer",
-                "marginRight": "8px",
-            }),
-            html.Button("Reject", id="interrupt-reject-btn", n_clicks=0, style={
-                "background": colors.get("error", "#ea4335"),
-                "color": "#ffffff",
-                "border": "none",
-                "padding": "8px 16px",
-                "borderRadius": "4px",
-                "fontSize": "12px",
-                "fontWeight": "500",
-                "cursor": "pointer",
-                "marginRight": "8px",
-            }),
-            html.Button("Edit", id="interrupt-edit-btn", n_clicks=0, style={
-                "background": colors.get("accent", "#1a73e8"),
-                "color": "#ffffff",
-                "border": "none",
-                "padding": "8px 16px",
-                "borderRadius": "4px",
-                "fontSize": "12px",
-                "fontWeight": "500",
-                "cursor": "pointer",
-            }),
+            html.Button("Approve", id="interrupt-approve-btn", n_clicks=0,
+                className="interrupt-btn interrupt-btn-approve",
+                style={"marginRight": "10px"}
+            ),
+            html.Button("Reject", id="interrupt-reject-btn", n_clicks=0,
+                className="interrupt-btn interrupt-btn-reject",
+                style={"marginRight": "10px"}
+            ),
+            html.Button("Edit", id="interrupt-edit-btn", n_clicks=0,
+                className="interrupt-btn interrupt-btn-edit"
+            ),
         ], style={"display": "flex"})
     ]))
 
-    return html.Div(children, style={
-        "padding": "16px",
-        "background": colors.get("interrupt_bg", "#fffbeb"),
-        "border": f"1px solid {colors.get('warning', '#fbbc04')}",
-        "borderRadius": "6px",
-        "marginBottom": "8px",
-    })
+    return html.Div(children, className="interrupt-container")
 
 
 def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
     """Render all canvas items using CSS classes for theme awareness."""
     if not canvas_items:
         return html.Div([
-            html.Div("🗒", style={
-                "fontSize": "48px",
-                "textAlign": "center",
-                "marginBottom": "16px",
-                "opacity": "0.3"
-            }),
-            html.P("Canvas is empty", className="canvas-empty-text", style={
+            html.P("Canvas empty", className="canvas-empty-text", style={
                 "textAlign": "center",
                 "fontSize": "14px"
             }),
-            html.P("The agent will add visualizations, charts, and notes here", className="canvas-empty-text", style={
+            html.P("Visualizations and outputs appear here", className="canvas-empty-text", style={
                 "textAlign": "center",
                 "fontSize": "12px",
-                "marginTop": "8px"
+                "marginTop": "5px"
             })
         ], className="canvas-empty", style={
             "display": "flex",
@@ -494,7 +400,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
             "alignItems": "center",
             "justifyContent": "center",
             "height": "100%",
-            "padding": "40px"
+            "padding": "25px"
         })
 
     rendered_items = []
@@ -507,10 +413,10 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
         if title:
             rendered_items.append(
                 html.H3(title, className="canvas-item-title", style={
-                    "fontSize": "16px",
+                    "fontSize": "15px",
                     "fontWeight": "600",
-                    "marginBottom": "12px",
-                    "marginTop": "24px" if i > 0 else "0",
+                    "marginBottom": "8px",
+                    "marginTop": "15px" if i > 0 else "0",
                 })
             )
 
@@ -522,8 +428,8 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                         item.get("data", ""),
                         className="canvas-markdown",
                         style={
-                            "fontSize": "14px",
-                            "lineHeight": "1.6",
+                            "fontSize": "15px",
+                            "lineHeight": "1.5",
                             "wordBreak": "break-word",
                             "overflowWrap": "break-word",
                         }
@@ -539,7 +445,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                         children=dcc.Markdown(
                             item.get("html", ""),
                             dangerously_allow_html=True,
-                            style={"fontSize": "13px"}
+                            style={"fontSize": "14px"}
                         )
                     )
                 ], className="canvas-item canvas-item-dataframe", style={
@@ -557,7 +463,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                             "maxWidth": "100%",
                             "width": "100%",
                             "height": "auto",
-                            "borderRadius": "4px",
+                            "borderRadius": "5px",
                             "objectFit": "contain",
                         }
                     )
@@ -594,7 +500,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                         className="mermaid-diagram",
                         style={
                             "textAlign": "center",
-                            "padding": "20px",
+                            "padding": "25px",
                             "width": "100%",
                             "overflow": "auto",
                             "whiteSpace": "pre",
@@ -614,7 +520,7 @@ def render_canvas_items(canvas_items: List[Dict], colors: Dict) -> html.Div:
                         str(item),
                         className="canvas-code",
                         style={
-                            "fontSize": "12px",
+                            "fontSize": "15px",
                             "display": "block",
                             "whiteSpace": "pre-wrap",
                             "wordBreak": "break-word",

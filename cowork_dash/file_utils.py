@@ -83,7 +83,7 @@ def load_folder_contents(folder_path: str, workspace_root: Path) -> List[Dict]:
 def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int = 0, parent_path: str = "") -> List:
     """Render file tree with collapsible folders using CSS classes for theming."""
     components = []
-    indent = level * 20
+    indent = level * 15  # Scaled up indent
 
     for item in items:
         if item["type"] == "folder":
@@ -98,15 +98,15 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                         id={"type": "folder-icon", "path": folder_id},
                         className="folder-icon",
                         style={
-                            "marginRight": "8px",
+                            "marginRight": "5px",
                             "fontSize": "10px",
-                            "transition": "transform 0.2s",
+                            "transition": "transform 0.15s",
                             "display": "inline-block",
                         }
                     ),
                     html.Span(item["name"], className="folder-name", style={
                         "fontWeight": "500",
-                        "fontSize": "13px",
+                        "fontSize": "14px",
                     })
                 ],
                 id={"type": "folder-header", "path": folder_id},
@@ -115,8 +115,8 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                 style={
                     "display": "flex",
                     "alignItems": "center",
-                    "padding": "8px 12px",
-                    "paddingLeft": f"{12 + indent}px",
+                    "padding": "5px 10px",
+                    "paddingLeft": f"{10 + indent}px",
                     "cursor": "pointer",
                     "userSelect": "none",
                 },
@@ -134,8 +134,8 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                 # Folder is known to be empty
                 child_content = [
                     html.Div("(empty)", className="file-tree-empty", style={
-                        "padding": "8px 12px",
-                        "paddingLeft": f"{32 + (level + 1) * 20}px",
+                        "padding": "4px 10px",
+                        "paddingLeft": f"{25 + (level + 1) * 15}px",
                         "fontSize": "12px",
                         "fontStyle": "italic",
                     })
@@ -147,8 +147,8 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                         id={"type": "folder-loading", "path": folder_id},
                         className="file-tree-loading",
                         style={
-                            "padding": "8px 12px",
-                            "paddingLeft": f"{32 + (level + 1) * 20}px",
+                            "padding": "4px 10px",
+                            "paddingLeft": f"{25 + (level + 1) * 15}px",
                             "fontSize": "12px",
                             "fontStyle": "italic",
                         }
@@ -170,9 +170,9 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                     id={"type": "file-item", "path": item["path"]},
                     className="file-item file-tree-item",
                     style={
-                        "fontSize": "13px",
-                        "padding": "8px 12px",
-                        "paddingLeft": f"{32 + indent}px",
+                        "fontSize": "14px",
+                        "padding": "5px 10px",
+                        "paddingLeft": f"{25 + indent}px",
                         "cursor": "pointer",
                     },
                     **{"data-viewable": "true" if item["viewable"] else "false"}
