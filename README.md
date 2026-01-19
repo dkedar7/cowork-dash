@@ -4,10 +4,10 @@ A web interface for AI agent interactions with filesystem workspace, canvas visu
 
 ## Features
 
-- 🤖 **AI Agent Chat**: Real-time streaming with thinking process and task progress
-- 📁 **File Browser**: Interactive file tree with lazy loading
-- 🎨 **Canvas**: Visualize DataFrames, Plotly/Matplotlib charts, Mermaid diagrams, images
-- ⚙️ **Flexible Configuration**: Environment variables, CLI args, or config file
+- **AI Agent Chat**: Real-time streaming with thinking process and task progress
+- **File Browser**: Interactive file tree with lazy loading
+- **Canvas**: Visualize DataFrames, Plotly/Matplotlib charts, Mermaid diagrams, images
+- **Flexible Configuration**: Environment variables, CLI args, or config file
 
 ## Quick Start
 
@@ -18,13 +18,17 @@ A web interface for AI agent interactions with filesystem workspace, canvas visu
 pip install cowork-dash
 
 # Or run directly with uvx (no installation needed)
+export ANTHROPIC_API_KEY="your_anthropic_api_key"
 uvx cowork-dash run --workspace ~/my-workspace
 ```
 
 ### Run
+After setting up your agent (optional), run the app.
+You can also use the default agent by setting ANTHROPIC_API_KEY environment variable.
 
 ```bash
 # Run with defaults (current directory as workspace, no agent)
+export ANTHROPIC_API_KEY="your_anthropic_api_key"
 cowork-dash run
 
 # Run with workspace
@@ -50,7 +54,7 @@ Open browser to `http://localhost:8050`
 ### Environment Variables (optional)
 
 ```bash
-export DEEPAGENT_SPEC=my_agent.py:agent
+export DEEPAGENT_SPEC=my_agent.py:agent         # Set any Langgraph agent
 export DEEPAGENT_WORKSPACE_ROOT=/path/to/workspace
 export DEEPAGENT_PORT=9000                      # optional (default: 8050)
 export DEEPAGENT_HOST=0.0.0.0                   # optional (default: localhost)
@@ -176,14 +180,10 @@ python -m build
 - dash-mantine-components
 - pandas, plotly, matplotlib, Pillow
 - python-dotenv
-- deepagents (optional, for AI agents)
+- deepagents
 
 ## Links
 
 - **PyPI**: https://pypi.org/project/cowork-dash/
 - **GitHub**: https://github.com/dkedar7/cowork-dash
 - **Issues**: https://github.com/dkedar7/cowork-dash/issues
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details
