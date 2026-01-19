@@ -782,6 +782,11 @@ def display_initial_messages(history, theme):
             tool_calls_block = format_tool_calls_inline(msg["tool_calls"], colors)
             if tool_calls_block:
                 messages.append(tool_calls_block)
+        # Render todos stored with this message
+        if msg.get("todos"):
+            todos_block = format_todos_inline(msg["todos"], colors)
+            if todos_block:
+                messages.append(todos_block)
     return messages
 
 # Chat callbacks
@@ -808,7 +813,7 @@ def handle_send_immediate(n_clicks, n_submit, message, history, theme):
     history = history or []
     history.append({"role": "user", "content": message})
 
-    # Render all history messages including tool calls
+    # Render all history messages including tool calls and todos
     messages = []
     for i, m in enumerate(history):
         is_new = (i == len(history) - 1)
@@ -819,6 +824,11 @@ def handle_send_immediate(n_clicks, n_submit, message, history, theme):
             tool_calls_block = format_tool_calls_inline(m["tool_calls"], colors)
             if tool_calls_block:
                 messages.append(tool_calls_block)
+        # Render todos stored with this message
+        if m.get("todos"):
+            todos_block = format_todos_inline(m["todos"], colors)
+            if todos_block:
+                messages.append(todos_block)
 
     messages.append(format_loading(colors))
 
@@ -852,7 +862,7 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
     colors = get_colors(theme or "light")
 
     def render_history_messages(history_items):
-        """Render all history items including tool calls."""
+        """Render all history items including tool calls and todos."""
         messages = []
         for msg in history_items:
             msg_response_time = msg.get("response_time") if msg["role"] == "assistant" else None
@@ -862,6 +872,11 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
                 tool_calls_block = format_tool_calls_inline(msg["tool_calls"], colors)
                 if tool_calls_block:
                     messages.append(tool_calls_block)
+            # Render todos stored with this message
+            if msg.get("todos"):
+                todos_block = format_todos_inline(msg["todos"], colors)
+                if todos_block:
+                    messages.append(todos_block)
         return messages
 
     # Check for interrupt (human-in-the-loop)
@@ -900,12 +915,15 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
         if state.get("start_time"):
             response_time = time.time() - state["start_time"]
 
-        # Agent finished - store tool calls with the USER message (they appear after user msg)
-        if state.get("tool_calls") and history:
-            # Find the last user message and attach tool calls to it
+        # Agent finished - store tool calls and todos with the USER message (they appear after user msg)
+        if history:
+            # Find the last user message and attach tool calls and todos to it
             for i in range(len(history) - 1, -1, -1):
                 if history[i]["role"] == "user":
-                    history[i]["tool_calls"] = state["tool_calls"]
+                    if state.get("tool_calls"):
+                        history[i]["tool_calls"] = state["tool_calls"]
+                    if state.get("todos"):
+                        history[i]["todos"] = state["todos"]
                     break
 
         # Add assistant response to history (with response time)
@@ -917,7 +935,7 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
 
         history.append(assistant_msg)
 
-        # Render all history (tool calls are now part of history)
+        # Render all history (tool calls and todos are now part of history)
         final_messages = []
         for i, msg in enumerate(history):
             is_new = (i >= len(history) - 1)
@@ -928,6 +946,11 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
                 tool_calls_block = format_tool_calls_inline(msg["tool_calls"], colors)
                 if tool_calls_block:
                     final_messages.append(tool_calls_block)
+            # Render todos stored with this message
+            if msg.get("todos"):
+                todos_block = format_todos_inline(msg["todos"], colors)
+                if todos_block:
+                    final_messages.append(todos_block)
 
         # Disable polling
         return final_messages, history, True
@@ -1026,6 +1049,11 @@ def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_
             tool_calls_block = format_tool_calls_inline(msg["tool_calls"], colors)
             if tool_calls_block:
                 messages.append(tool_calls_block)
+        # Render todos stored with this message
+        if msg.get("todos"):
+            todos_block = format_todos_inline(msg["todos"], colors)
+            if todos_block:
+                messages.append(todos_block)
 
     messages.append(format_loading(colors))
 

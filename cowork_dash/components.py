@@ -99,60 +99,72 @@ def format_thinking(thinking_text: str, colors: Dict):
     })
 
 
-def format_todos(todos: Dict, colors: Dict):
-    """Format todo list. Handles dict format where keys are task names and values are statuses."""
+def format_todos(todos, colors: Dict):
+    """Format todo list. Handles both list format [{"content": ..., "status": ...}] and dict format {task_name: status}."""
     if not todos:
         return html.Span("No tasks", style={"color": colors["text_muted"], "fontStyle": "italic", "fontSize": "14px"})
 
     items = []
 
-    # Handle dictionary format: {task_name: status}
-    if isinstance(todos, dict):
+    # Normalize to list of (task_name, status) tuples
+    todo_list = []
+    if isinstance(todos, list):
+        # List format: [{"content": "task", "status": "pending"}, ...]
+        for item in todos:
+            if isinstance(item, dict):
+                task_name = item.get("content", "")
+                status = item.get("status", "pending")
+                todo_list.append((task_name, status))
+    elif isinstance(todos, dict):
+        # Dict format: {task_name: status}
         for task_name, status in todos.items():
-            # Determine checkbox symbol and styling based on status
-            if status == "completed":
-                checkbox_symbol = "✓"
-                checkbox_color = colors["todo"]
-                text_color = colors["text_muted"]
-                text_decoration = "line-through"
-                font_weight = "bold"
-            elif status == "in_progress":
-                checkbox_symbol = "◐"
-                checkbox_color = colors["warning"]
-                text_color = colors["text_primary"]
-                text_decoration = "none"
-                font_weight = "bold"
-            else:  # pending
-                checkbox_symbol = "○"
-                checkbox_color = colors["text_muted"]
-                text_color = colors["text_primary"]
-                text_decoration = "none"
-                font_weight = "normal"
+            todo_list.append((task_name, status))
 
-            checkbox = html.Span(
-                checkbox_symbol,
-                style={
-                    "fontSize": "14px",
-                    "color": checkbox_color,
-                    "marginRight": "8px",
-                    "fontWeight": font_weight,
-                }
-            )
+    for task_name, status in todo_list:
+        # Determine checkbox symbol and styling based on status
+        if status == "completed":
+            checkbox_symbol = "✓"
+            checkbox_color = colors["todo"]
+            text_color = colors["text_muted"]
+            text_decoration = "line-through"
+            font_weight = "bold"
+        elif status == "in_progress":
+            checkbox_symbol = "◐"
+            checkbox_color = colors["warning"]
+            text_color = colors["text_primary"]
+            text_decoration = "none"
+            font_weight = "bold"
+        else:  # pending
+            checkbox_symbol = "○"
+            checkbox_color = colors["text_muted"]
+            text_color = colors["text_primary"]
+            text_decoration = "none"
+            font_weight = "normal"
 
-            items.append(html.Div([
-                checkbox,
-                html.Span(task_name, style={
-                    "fontSize": "14px",
-                    "color": text_color,
-                    "textDecoration": text_decoration,
-                    "fontWeight": font_weight if status == "in_progress" else "normal",
-                })
-            ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"}))
+        checkbox = html.Span(
+            checkbox_symbol,
+            style={
+                "fontSize": "14px",
+                "color": checkbox_color,
+                "marginRight": "8px",
+                "fontWeight": font_weight,
+            }
+        )
+
+        items.append(html.Div([
+            checkbox,
+            html.Span(task_name, style={
+                "fontSize": "14px",
+                "color": text_color,
+                "textDecoration": text_decoration,
+                "fontWeight": font_weight if status == "in_progress" else "normal",
+            })
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"}))
 
     return html.Div(items)
 
 
-def format_todos_inline(todos: Dict, colors: Dict):
+def format_todos_inline(todos, colors: Dict):
     """Format todos as an inline subordinate message."""
     if not todos:
         return None
