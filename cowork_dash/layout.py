@@ -176,17 +176,15 @@ Let's get started!"""
                         ),
                         dmc.Group([
                             dmc.ActionIcon(
-                                DashIconify(icon="radix-icons:terminal", width=18),
+                                DashIconify(icon="mdi:console", width=18),
                                 id="open-terminal-btn",
-                                variant="subtle",
-                                color="gray",
+                                variant="default",
                                 size="md",
                             ),
                             dmc.ActionIcon(
-                                DashIconify(icon="radix-icons:reload", width=18),
+                                DashIconify(icon="mdi:refresh", width=18),
                                 id="refresh-btn",
-                                variant="subtle",
-                                color="gray",
+                                variant="default",
                                 size="md",
                             ),
                         ], id="files-actions", gap=5)

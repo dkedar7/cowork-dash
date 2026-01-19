@@ -1,13 +1,21 @@
 """UI components for rendering messages, canvas items, and other UI elements."""
 
 import json
-from datetime import datetime
 from typing import Dict, List
 from dash import html, dcc
 
 
-def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: bool = False):
-    """Format a chat message."""
+def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: bool = False, response_time: float = None):
+    """Format a chat message.
+
+    Args:
+        role: 'user' or 'assistant'
+        content: Message content
+        colors: Color scheme dict
+        styles: Styles dict
+        is_new: Whether this is a new message (for animation)
+        response_time: Time in seconds it took to generate the response (agent messages only)
+    """
     is_user = role == "user"
 
     # Render content as markdown for assistant messages, plain text for user
@@ -31,16 +39,30 @@ def format_message(role: str, content: str, colors: Dict, styles: Dict, is_new: 
     else:
         message_class += " chat-message-agent"
 
-    return html.Div([
-        html.Div([
-            html.Span("You" if is_user else "Agent", className="message-role-user" if is_user else "message-role-agent", style={
-                "fontSize": "12px", "fontWeight": "500",
-                "textTransform": "uppercase", "letterSpacing": "0.4px",
-            }),
-            html.Span(datetime.now().strftime("%H:%M"), className="message-time", style={
+    # Build header with role and optional response time
+    header_children = [
+        html.Span("You" if is_user else "Agent", className="message-role-user" if is_user else "message-role-agent", style={
+            "fontSize": "12px", "fontWeight": "500",
+            "textTransform": "uppercase", "letterSpacing": "0.4px",
+        })
+    ]
+
+    # Add response time for agent messages
+    if not is_user and response_time is not None:
+        if response_time >= 60:
+            minutes = int(response_time // 60)
+            seconds = int(response_time % 60)
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{int(response_time)}s"
+        header_children.append(
+            html.Span(time_str, className="message-time", style={
                 "fontSize": "12px", "marginLeft": "8px",
             })
-        ], style={"marginBottom": "5px"}),
+        )
+
+    return html.Div([
+        html.Div(header_children, style={"marginBottom": "5px"}),
         content_element
     ], className=message_class, style={
         "padding": "12px 15px",

@@ -58,7 +58,8 @@ WORKSPACE_ROOT = Path(_workspace_path).resolve() if _workspace_path else Path(".
 # CLI argument: --agent
 # Default: None (manual mode, no agent)
 # Example: "mymodule:agent" or "/path/to/agent.py:my_agent"
-AGENT_SPEC = get_config("spec", default=None) or get_config("agent_spec", default=None)
+_default_agent = str(Path(__file__).parent / "agent.py") + ":agent"
+AGENT_SPEC = get_config("spec", default=None) or get_config("agent_spec", default=None) or _default_agent
 
 # Application title
 # Environment variable: DEEPAGENT_APP_TITLE
