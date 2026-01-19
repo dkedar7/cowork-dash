@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-01-19
+
+### Added
+- Auto-scroll chat messages to bottom when new content is added
+- SVG favicon support with custom logo
+- Response time display for agent messages (e.g., "23s" or "1m 43s")
+- Persistent todos in chat history (todos now stick like tool calls)
+- dash-iconify as a required dependency
+
+### Changed
+- Eliminated index.html template - all styles now in styles.css
+- Simplified app configuration with inline index string for favicon only
+- Improved todo rendering to support list format from agent output
+- Default agent spec now points to package's agent.py
+
+### Fixed
+- Terminal and refresh button icons not visible (switched to mdi icons)
+- dangerously_allow_html incorrectly passed to html.Div instead of dcc.Markdown
+- Todo items not rendering (format_todos now handles both list and dict formats)
+
+### UI/UX
+- Added Google Fonts import directly in CSS
+- Consolidated all animations and styles in styles.css
+- Dark mode support for all new components
+
 ## [0.1.1] - 2025-11-29
 
 ### Added
@@ -49,5 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resizable split-pane interface
 - Upload/download functionality for files
 
+[0.1.2]: https://github.com/dkedar7/cowork-dash/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/dkedar7/cowork-dash/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dkedar7/cowork-dash/releases/tag/v0.1.0
