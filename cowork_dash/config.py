@@ -53,16 +53,16 @@ def get_config(key: str, default=None, type_cast=None):
 _workspace_path = get_config("workspace_root", default="./")
 WORKSPACE_ROOT = Path(_workspace_path).resolve() if _workspace_path else Path("./").resolve()
 
-# Agent specification - supports two formats:
+# Agent specification - supports two formats (both use colon separator):
 #   1. File path: "path/to/file.py:object_name"
-#   2. Module path: "mypackage.module.object_name"
+#   2. Module path: "mypackage.module:object_name"
 # Environment variable: DEEPAGENT_SPEC (or DEEPAGENT_AGENT_SPEC for backwards compatibility)
 # CLI argument: --agent
 # Default: package's built-in agent
 # Examples:
 #   - "my_agents.py:agent" (file in current directory)
 #   - "/path/to/agent.py:my_agent" (absolute path)
-#   - "mypackage.agents.my_agent" (installed Python module)
+#   - "mypackage.agents:my_agent" (installed Python module)
 _default_agent = str(Path(__file__).parent / "agent.py") + ":agent"
 AGENT_SPEC = get_config("spec", default=None) or get_config("agent_spec", default=None) or _default_agent
 

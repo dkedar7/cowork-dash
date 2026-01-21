@@ -124,37 +124,38 @@ def load_agent_from_spec(agent_spec: str):
     """
     Load agent from specification string.
 
-    Supports two formats:
+    Supports two formats (both use colon separator):
     1. File path format: "path/to/file.py:object_name"
-    2. Module format: "mypackage.module.submodule.object_name"
+    2. Module format: "mypackage.module.submodule:object_name"
 
     Args:
         agent_spec: String like "agent.py:agent", "my_agents.py:custom_agent",
-                   or "mypackage.agents.my_agent"
+                   or "mypackage.agents:my_agent"
 
     Returns:
         tuple: (agent_object, error_message)
     """
     try:
-        # Determine format: file path (contains ":") vs module path (no ":" and no ".py")
-        if ":" in agent_spec:
-            # File path format: "path/to/file.py:object_name"
-            return _load_agent_from_file(agent_spec)
-        elif agent_spec.endswith(".py"):
-            # Looks like a file path without object name
-            return None, f"Invalid agent spec '{agent_spec}'. File path format requires object name: 'path/to/file.py:object_name'"
+        # Both formats use colon separator
+        if ":" not in agent_spec:
+            return None, f"Invalid agent spec '{agent_spec}'. Expected format: 'path/to/file.py:object' or 'module.path:object'"
+
+        left_part, object_name = agent_spec.rsplit(":", 1)
+
+        # Determine if it's a file path or module path
+        # File paths end with .py or contain path separators
+        if left_part.endswith(".py") or "/" in left_part or "\\" in left_part:
+            return _load_agent_from_file(left_part, object_name)
         else:
-            # Module format: "mypackage.module.object_name"
-            return _load_agent_from_module(agent_spec)
+            return _load_agent_from_module(left_part, object_name)
 
     except Exception as e:
         return None, f"Failed to load agent from {agent_spec}: {e}"
 
 
-def _load_agent_from_file(agent_spec: str):
+def _load_agent_from_file(file_path_str: str, object_name: str):
     """Load agent from file path format: 'path/to/file.py:object_name'"""
-    file_path, object_name = agent_spec.rsplit(":", 1)
-    file_path = Path(file_path).resolve()
+    file_path = Path(file_path_str).resolve()
 
     if not file_path.exists():
         return None, f"Agent file not found: {file_path}"
@@ -176,15 +177,8 @@ def _load_agent_from_file(agent_spec: str):
     return agent, None
 
 
-def _load_agent_from_module(agent_spec: str):
-    """Load agent from module format: 'mypackage.module.object_name'"""
-    parts = agent_spec.rsplit(".", 1)
-
-    if len(parts) < 2:
-        return None, f"Invalid module spec '{agent_spec}'. Expected format: 'module.object_name' or 'package.module.object_name'"
-
-    module_path, object_name = parts
-
+def _load_agent_from_module(module_path: str, object_name: str):
+    """Load agent from module format: 'mypackage.module:object_name'"""
     try:
         # Import the module
         module = importlib.import_module(module_path)
@@ -1662,9 +1656,9 @@ def run_app(
         agent_instance (object, optional): Agent object instance (Python API only)
         workspace (str, optional): Workspace directory path
         agent_spec (str, optional): Agent specification (overrides agent_instance).
-            Supports two formats:
+            Supports two formats (both use colon separator):
             - File path: "path/to/file.py:object_name"
-            - Module path: "mypackage.module.object_name"
+            - Module path: "mypackage.module:object_name"
         port (int, optional): Port number
         host (str, optional): Host to bind to
         debug (bool, optional): Debug mode
@@ -1685,7 +1679,7 @@ def run_app(
         >>> run_app(agent_spec="my_agent.py:agent", port=8080)
 
         >>> # Using agent spec (module format)
-        >>> run_app(agent_spec="mypackage.agents.my_agent", port=8080)
+        >>> run_app(agent_spec="mypackage.agents:my_agent", port=8080)
 
         >>> # Without agent (manual mode)
         >>> run_app(workspace="~/my-workspace", debug=True)
