@@ -382,13 +382,27 @@ def _run_agent_stream(message: str, resume_data: Dict = None):
                                 # Update tool call status when we get the result
                                 tool_call_id = getattr(last_msg, 'tool_call_id', None)
                                 if tool_call_id:
-                                    # Determine status based on content
+                                    # Determine status - check message status attribute first
                                     content = last_msg.content
                                     status = "success"
-                                    if isinstance(content, str) and ("error" in content.lower() or "Error:" in content):
+
+                                    # Check if ToolMessage has explicit status (e.g., from LangGraph)
+                                    msg_status = getattr(last_msg, 'status', None)
+                                    if msg_status == 'error':
                                         status = "error"
+                                    # Check for dict with explicit error field
                                     elif isinstance(content, dict) and content.get("error"):
                                         status = "error"
+                                    # Check for common error patterns at the START of the message
+                                    # (not just anywhere, to avoid false positives)
+                                    elif isinstance(content, str):
+                                        content_lower = content.lower().strip()
+                                        # Only mark as error if it starts with error indicators
+                                        if (content_lower.startswith("error:") or
+                                            content_lower.startswith("failed:") or
+                                            content_lower.startswith("exception:") or
+                                            content_lower.startswith("traceback")):
+                                            status = "error"
 
                                     # Truncate result for display
                                     result_display = str(content)
