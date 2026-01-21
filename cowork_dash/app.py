@@ -122,43 +122,83 @@ Examples:
 
 def load_agent_from_spec(agent_spec: str):
     """
-    Load agent from specification string in format "path/to/file.py:object_name".
+    Load agent from specification string.
+
+    Supports two formats:
+    1. File path format: "path/to/file.py:object_name"
+    2. Module format: "mypackage.module.submodule.object_name"
 
     Args:
-        agent_spec: String like "agent.py:agent" or "my_agents.py:custom_agent"
+        agent_spec: String like "agent.py:agent", "my_agents.py:custom_agent",
+                   or "mypackage.agents.my_agent"
 
     Returns:
         tuple: (agent_object, error_message)
     """
     try:
-        # Parse the spec
-        if ":" not in agent_spec:
-            return None, f"Invalid agent spec '{agent_spec}'. Expected format: 'path/to/file.py:object_name'"
-
-        file_path, object_name = agent_spec.rsplit(":", 1)
-        file_path = Path(file_path).resolve()
-
-        if not file_path.exists():
-            return None, f"Agent file not found: {file_path}"
-
-        # Load the module
-        spec = importlib.util.spec_from_file_location("custom_agent_module", file_path)
-        if spec is None or spec.loader is None:
-            return None, f"Failed to load module from {file_path}"
-
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["custom_agent_module"] = module
-        spec.loader.exec_module(module)
-
-        # Get the object
-        if not hasattr(module, object_name):
-            return None, f"Object '{object_name}' not found in {file_path}"
-
-        agent = getattr(module, object_name)
-        return agent, None
+        # Determine format: file path (contains ":") vs module path (no ":" and no ".py")
+        if ":" in agent_spec:
+            # File path format: "path/to/file.py:object_name"
+            return _load_agent_from_file(agent_spec)
+        elif agent_spec.endswith(".py"):
+            # Looks like a file path without object name
+            return None, f"Invalid agent spec '{agent_spec}'. File path format requires object name: 'path/to/file.py:object_name'"
+        else:
+            # Module format: "mypackage.module.object_name"
+            return _load_agent_from_module(agent_spec)
 
     except Exception as e:
         return None, f"Failed to load agent from {agent_spec}: {e}"
+
+
+def _load_agent_from_file(agent_spec: str):
+    """Load agent from file path format: 'path/to/file.py:object_name'"""
+    file_path, object_name = agent_spec.rsplit(":", 1)
+    file_path = Path(file_path).resolve()
+
+    if not file_path.exists():
+        return None, f"Agent file not found: {file_path}"
+
+    # Load the module
+    spec = importlib.util.spec_from_file_location("custom_agent_module", file_path)
+    if spec is None or spec.loader is None:
+        return None, f"Failed to load module from {file_path}"
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["custom_agent_module"] = module
+    spec.loader.exec_module(module)
+
+    # Get the object
+    if not hasattr(module, object_name):
+        return None, f"Object '{object_name}' not found in {file_path}"
+
+    agent = getattr(module, object_name)
+    return agent, None
+
+
+def _load_agent_from_module(agent_spec: str):
+    """Load agent from module format: 'mypackage.module.object_name'"""
+    parts = agent_spec.rsplit(".", 1)
+
+    if len(parts) < 2:
+        return None, f"Invalid module spec '{agent_spec}'. Expected format: 'module.object_name' or 'package.module.object_name'"
+
+    module_path, object_name = parts
+
+    try:
+        # Import the module
+        module = importlib.import_module(module_path)
+    except ModuleNotFoundError as e:
+        return None, f"Module '{module_path}' not found: {e}"
+    except ImportError as e:
+        return None, f"Failed to import module '{module_path}': {e}"
+
+    # Get the object
+    if not hasattr(module, object_name):
+        return None, f"Object '{object_name}' not found in module '{module_path}'"
+
+    agent = getattr(module, object_name)
+    return agent, None
 
 # Module-level configuration (uses config defaults)
 WORKSPACE_ROOT = config.WORKSPACE_ROOT
@@ -1621,7 +1661,10 @@ def run_app(
     Args:
         agent_instance (object, optional): Agent object instance (Python API only)
         workspace (str, optional): Workspace directory path
-        agent_spec (str, optional): Agent specification as "path:object" (overrides agent_instance)
+        agent_spec (str, optional): Agent specification (overrides agent_instance).
+            Supports two formats:
+            - File path: "path/to/file.py:object_name"
+            - Module path: "mypackage.module.object_name"
         port (int, optional): Port number
         host (str, optional): Host to bind to
         debug (bool, optional): Debug mode
@@ -1638,8 +1681,11 @@ def run_app(
         >>> my_agent = MyAgent()
         >>> run_app(my_agent, workspace="~/my-workspace")
 
-        >>> # Using agent spec
+        >>> # Using agent spec (file path format)
         >>> run_app(agent_spec="my_agent.py:agent", port=8080)
+
+        >>> # Using agent spec (module format)
+        >>> run_app(agent_spec="mypackage.agents.my_agent", port=8080)
 
         >>> # Without agent (manual mode)
         >>> run_app(workspace="~/my-workspace", debug=True)

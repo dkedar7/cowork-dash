@@ -100,8 +100,8 @@ Let's get started!"""
                         ], style={"display": "flex", "alignItems": "center"})
                     ], style={
                         "display": "flex", "justifyContent": "space-between",
-                        "alignItems": "center", "maxWidth": "1600px",
-                        "margin": "0 auto", "padding": "0 12px",
+                        "alignItems": "center", "width": "100%",
+                        "padding": "0 12px",
                     })
                 ], id="header", style={
                     "background": "var(--mantine-color-body)",
