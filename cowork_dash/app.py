@@ -1784,7 +1784,9 @@ def create_folder(n_clicks, folder_name, current_workspace, theme):
 @app.callback(
     [Output("files-view", "style"),
      Output("canvas-view", "style"),
-     Output("open-terminal-btn", "style")],
+     Output("open-terminal-btn", "style"),
+     Output("create-folder-btn", "style"),
+     Output("file-upload-sidebar", "style")],
     [Input("sidebar-view-toggle", "value")],
     prevent_initial_call=True
 )
@@ -1794,7 +1796,7 @@ def toggle_view(view_value):
         raise PreventUpdate
 
     if view_value == "canvas":
-        # Show canvas, hide files, hide terminal button (not relevant for canvas)
+        # Show canvas, hide files, hide file-related buttons
         return (
             {"flex": "1", "display": "none", "flexDirection": "column"},
             {
@@ -1804,10 +1806,12 @@ def toggle_view(view_value):
                 "flexDirection": "column",
                 "overflow": "hidden"
             },
-            {"display": "none"}  # Hide terminal button on canvas view
+            {"display": "none"},  # Hide terminal button
+            {"display": "none"},  # Hide create folder button
+            {"display": "none"},  # Hide file upload button
         )
     else:
-        # Show files, hide canvas, show terminal button
+        # Show files, hide canvas, show file-related buttons
         return (
             {
                 "flex": "1",
@@ -1823,7 +1827,9 @@ def toggle_view(view_value):
                 "flexDirection": "column",
                 "overflow": "hidden"
             },
-            {}  # Show terminal button (default styles)
+            {},  # Show terminal button (default styles)
+            {},  # Show create folder button (default styles)
+            {},  # Show file upload button (default styles)
         )
 
 
