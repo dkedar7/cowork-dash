@@ -24,7 +24,7 @@ pip install cowork-dash
 
 # Or run directly with uvx (no installation needed)
 export ANTHROPIC_API_KEY="your_anthropic_api_key"
-uvx cowork-dash run --workspace ~/my-workspace
+cowork-dash run
 ```
 
 ### Run
