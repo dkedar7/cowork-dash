@@ -947,7 +947,7 @@ app.layout = create_layout
     [State("theme-store", "data"),
      State("skip-history-render", "data"),
      State("session-initialized", "data")],
-    prevent_initial_call=False
+    prevent_initial_call="initial_duplicate"
 )
 def display_initial_messages(history, theme, skip_render, session_initialized):
     """Display initial welcome message or chat history.

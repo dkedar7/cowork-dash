@@ -1,3 +1,4 @@
+import os
 import uuid
 from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import InMemorySaver
@@ -92,7 +93,9 @@ Work iteratively like a human using Jupyter:
 
 The workspace is your sandbox - feel free to create files, organize content, and help users manage their projects."""
 
-backend = FilesystemBackend(root_dir=str("/"), virtual_mode=True)
+# Get workspace root from environment variable or default to current directory
+workspace_root = os.getenv("DEEPAGENT_WORKSPACE_ROOT", os.getcwd())
+backend = FilesystemBackend(root_dir=workspace_root, virtual_mode=True)
 
 agent = create_deep_agent(
     system_prompt=SYSTEM_PROMPT,
