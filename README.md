@@ -14,6 +14,15 @@ A web interface for AI agent interactions with filesystem workspace, canvas visu
 - **Canvas**: Visualize DataFrames, Plotly/Matplotlib charts, Mermaid diagrams, images
 - **Flexible Configuration**: Environment variables, CLI args, or config file
 
+## Demo
+
+<p align="center">
+  <em>Organizing files with an AI agent</em><br><br>
+  <a href="https://www.youtube.com/watch?v=yKB9cBx80VE">
+    <img src="https://img.youtube.com/vi/yKB9cBx80VE/maxresdefault.jpg" alt="Cowork Dash Demo Video" width="70%">
+  </a>
+</p>
+
 ## Quick Start
 
 ### Installation
