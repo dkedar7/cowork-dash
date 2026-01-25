@@ -51,19 +51,6 @@ Open browser to `http://localhost:8050`
 2. **Environment Variables** - `DEEPAGENT_*`
 3. **Config File** - `config.py` defaults
 
-### Environment Variables (optional)
-
-```bash
-export DEEPAGENT_SPEC=my_agent.py:agent         # Set any Langgraph agent
-export DEEPAGENT_WORKSPACE_ROOT=/path/to/workspace
-export DEEPAGENT_PORT=9000                      # optional (default: 8050)
-export DEEPAGENT_HOST=0.0.0.0                   # optional (default: localhost)
-export DEEPAGENT_DEBUG=true                     # optional (default: false)
-export DEEPAGENT_APP_TITLE="My App"             # optional
-export DEEPAGENT_APP_SUBTITLE="Subtitle"        # optional
-
-cowork-dash run
-```
 
 ### CLI Options (all optional)
 
@@ -71,12 +58,26 @@ cowork-dash run
 cowork-dash run [OPTIONS]
 
   --workspace PATH        Workspace directory (default: current directory)
-  --agent PATH:OBJECT     Agent spec (default: none, manual mode)
+  --agent PATH:OBJECT     Point to your Langgraph agent (default: default agent, manual mode)
   --port PORT            Server port (default: 8050)
   --host HOST            Server host (default: localhost)
   --debug                Enable debug mode
   --title TITLE          App title (default: "Cowork Dash")
   --subtitle TEXT        App subtitle (default: "AI-Powered Workspace")
+  --welcome-message TEXT Welcome message shown in chat (supports markdown)
+```
+
+### Environment Variables (optional)
+
+```bash
+export DEEPAGENT_SPEC=my_agent.py:agent         # Set any Langgraph agent
+export DEEPAGENT_WORKSPACE_ROOT=/path/to/workspace
+export DEEPAGENT_DEBUG=true                     # optional (default: false)
+export DEEPAGENT_APP_TITLE="My App"             # optional
+export DEEPAGENT_APP_SUBTITLE="Subtitle"        # optional
+export DEEPAGENT_WELCOME_MESSAGE="Hello!"       # optional (supports markdown)
+
+cowork-dash run
 ```
 
 ### Python API
@@ -92,26 +93,9 @@ run_app(agent, workspace="~/my-workspace")
 # Option 2: Use agent spec
 run_app(agent_spec="my_agent.py:agent", workspace="~/my-workspace")
 
-# Option 3: Manual mode (no agent)
-run_app(workspace="~/my-workspace", port=8080, debug=True)
 ```
 
 ## Agent Integration
-
-### Workspace Access
-
-Cowork Dash sets `DEEPAGENT_WORKSPACE_ROOT` environment variable for your agent:
-
-```python
-import os
-from pathlib import Path
-
-# In your agent code
-workspace = Path(os.getenv('DEEPAGENT_WORKSPACE_ROOT', './'))
-
-# Read/write files in workspace
-config_file = workspace / "config.json"
-```
 
 ### Agent Specification
 
@@ -124,13 +108,6 @@ cowork-dash run --agent agent.py:my_agent
 # Absolute path
 cowork-dash run --agent /path/to/agent.py:agent_instance
 ```
-
-### Agent Requirements
-
-Your agent must implement:
-- **Streaming**: `agent.stream(input, stream_mode="updates")`
-- **Message format**: `{"messages": [{"role": "user", "content": "..."}]}`
-- **Workspace access** (optional): Read `DEEPAGENT_WORKSPACE_ROOT` env var
 
 ### Example Agent Setup
 
