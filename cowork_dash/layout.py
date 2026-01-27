@@ -13,7 +13,7 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
     Create the app layout with current configuration.
 
     Args:
-        workspace_root: Path to workspace directory
+        workspace_root: Path to workspace directory (or None for virtual FS mode)
         app_title: Application title
         app_subtitle: Application subtitle
         colors: Color scheme dictionary
@@ -27,6 +27,12 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
     # Use provided welcome message or fall back to default
     message = welcome_message if welcome_message is not None else DEFAULT_WELCOME_MESSAGE
 
+    # Build initial file tree (empty if workspace_root is None for virtual FS mode)
+    if workspace_root is not None:
+        initial_file_tree = render_file_tree(build_file_tree(workspace_root, workspace_root), colors, styles)
+    else:
+        initial_file_tree = []  # Empty tree for virtual FS - will be populated per-session
+
     return dmc.MantineProvider(
         id="mantine-provider",
         forceColorScheme="light",
@@ -39,6 +45,7 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
             dcc.Store(id="pending-message", data=None),
             dcc.Store(id="skip-history-render", data=False),  # Flag to skip display_initial_messages render
             dcc.Store(id="session-initialized", data=False),  # Flag to track if session has been initialized
+            dcc.Store(id="session-id", data=None, storage_type="session"),  # Session ID for virtual FS isolation
             dcc.Store(id="expanded-folders", data=[]),
             dcc.Store(id="file-to-view", data=None),
             dcc.Store(id="file-click-tracker", data={}),
@@ -292,7 +299,7 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
                         }),
                         html.Div(
                             id="file-tree",
-                            children=render_file_tree(build_file_tree(workspace_root, workspace_root), colors, styles),
+                            children=initial_file_tree,
                             style={
                                 "flex": "1",
                                 "overflowY": "auto",

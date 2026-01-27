@@ -151,6 +151,10 @@ def run_app_cli(args):
     # Import here to avoid loading Dash when just running init
     from .app import run_app
 
+    # Only pass virtual_fs if explicitly set via --virtual-fs flag
+    # Otherwise pass None to let env var / config take precedence
+    virtual_fs = True if args.virtual_fs else None
+
     return run_app(
         workspace=args.workspace,
         agent_spec=args.agent,
@@ -159,7 +163,8 @@ def run_app_cli(args):
         debug=args.debug,
         title=args.title,
         welcome_message=args.welcome_message,
-        config_file=args.config
+        config_file=args.config,
+        virtual_fs=virtual_fs
     )
 
 
@@ -258,6 +263,12 @@ For more help: https://github.com/dkedar7/cowork-dash
         type=str,
         dest="welcome_message",
         help="Welcome message shown on startup (supports markdown)"
+    )
+    run_parser.add_argument(
+        "--virtual-fs",
+        action="store_true",
+        dest="virtual_fs",
+        help="Use in-memory virtual filesystem (ephemeral, for multi-user isolation)"
     )
 
     # Parse arguments
