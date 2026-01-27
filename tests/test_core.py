@@ -117,7 +117,8 @@ def test_api_workspace_env_var(tmp_path):
     workspace.mkdir()
 
     with patch("cowork_dash.app.app.run"):
-        run_app(workspace=str(workspace))
+        # Explicitly use physical filesystem mode to ensure env var is set
+        run_app(workspace=str(workspace), virtual_fs=False)
 
         assert os.environ["DEEPAGENT_WORKSPACE_ROOT"] == str(workspace.resolve())
 
