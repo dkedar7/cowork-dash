@@ -107,3 +107,24 @@ _default_welcome = """This is your AI-powered workspace. I can help you write co
 
 Let's get started!"""
 WELCOME_MESSAGE = get_config("welcome_message", default=_default_welcome)
+
+# Virtual filesystem mode (for multi-user deployments)
+# Environment variable: DEEPAGENT_VIRTUAL_FS
+# Accepts: true/1/yes to enable
+# When enabled:
+#   - Each browser session gets isolated in-memory file storage
+#   - Files, canvas, and uploads are not shared between sessions
+#   - All data is ephemeral (cleared when session ends)
+# When disabled (default):
+#   - All sessions share the same workspace directory on disk
+#   - Files persist on disk
+VIRTUAL_FS = get_config(
+    "virtual_fs",
+    default=False,
+    type_cast=lambda x: str(x).lower() in ("true", "1", "yes")
+)
+
+# Session timeout in seconds (only used when VIRTUAL_FS is True)
+# Environment variable: DEEPAGENT_SESSION_TIMEOUT
+# Default: 3600 (1 hour)
+SESSION_TIMEOUT = get_config("session_timeout", default=3600, type_cast=int)

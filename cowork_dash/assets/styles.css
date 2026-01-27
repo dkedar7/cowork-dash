@@ -749,6 +749,18 @@ details summary:hover {
     margin: 5px 0;
 }
 
+.canvas-markdown ul,
+.canvas-markdown ol {
+    margin: 5px 0;
+    padding-left: 24px;
+    list-style-position: inside;
+}
+
+.canvas-markdown li {
+    margin: 3px 0;
+    color: var(--mantine-color-text);
+}
+
 .canvas-markdown strong {
     color: var(--mantine-color-text);
     font-weight: 600;

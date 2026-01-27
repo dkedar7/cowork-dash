@@ -10,7 +10,6 @@ import platform
 import subprocess
 import threading
 import time
-import argparse
 import importlib.util
 from pathlib import Path
 from datetime import datetime
@@ -18,108 +17,26 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 load_dotenv()
 
-from dash import Dash, html, Input, Output, State, callback_context, no_update, ALL, clientside_callback
+from dash import Dash, html, Input, Output, State, callback_context, no_update, ALL
 from dash.exceptions import PreventUpdate
 import dash_mantine_components as dmc
 from dash_iconify import DashIconify
 
 # Import custom modules
-from .canvas import parse_canvas_object, export_canvas_to_markdown, load_canvas_from_markdown
+from .canvas import export_canvas_to_markdown, load_canvas_from_markdown
 from .file_utils import build_file_tree, render_file_tree, read_file_content, get_file_download_data, load_folder_contents
 from .components import (
-    format_message, format_loading, format_thinking, format_todos,
-    format_todos_inline, render_canvas_items, format_tool_calls_inline,
+    format_message, format_loading, format_thinking, format_todos_inline, render_canvas_items, format_tool_calls_inline,
     format_interrupt
 )
 from .layout import create_layout as create_layout_component
+from .virtual_fs import get_session_manager
 
 # Import configuration defaults
 from . import config
 
 # Generate thread ID
 thread_id = str(uuid.uuid4())
-
-# Parse command-line arguments early
-def parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="FastDash Browser - AI Agent Web Interface",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Use defaults from config.py
-  python app.py
-
-  # Override workspace and port
-  python app.py --workspace ~/my-workspace --port 8080
-
-  # Use custom agent from file
-  python app.py --agent my_agents.py:my_agent
-
-  # Production mode
-  python app.py --host 0.0.0.0 --port 80 --no-debug
-
-  # Debug mode with custom workspace
-  python app.py --debug --workspace /tmp/test-workspace
-        """
-    )
-
-    parser.add_argument(
-        "--workspace",
-        type=str,
-        help="Workspace directory path (default: from config.py)"
-    )
-
-    parser.add_argument(
-        "--agent",
-        type=str,
-        metavar="PATH:OBJECT",
-        help='Agent specification as "path/to/file.py:object_name" (e.g., "agent.py:agent" or "my_agents.py:custom_agent")'
-    )
-
-    parser.add_argument(
-        "--port",
-        type=int,
-        help="Port to run on (default: from config.py)"
-    )
-
-    parser.add_argument(
-        "--host",
-        type=str,
-        help="Host to bind to (default: from config.py)"
-    )
-
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode"
-    )
-
-    parser.add_argument(
-        "--no-debug",
-        action="store_true",
-        help="Disable debug mode"
-    )
-
-    parser.add_argument(
-        "--title",
-        type=str,
-        help="Application title (default: from config.py)"
-    )
-
-    parser.add_argument(
-        "--subtitle",
-        type=str,
-        help="Application subtitle (default: from config.py)"
-    )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to configuration file (default: config.py)"
-    )
-
-    return parser.parse_args()
 
 def load_agent_from_spec(agent_spec: str):
     """
@@ -203,12 +120,54 @@ PORT = config.PORT
 HOST = config.HOST
 DEBUG = config.DEBUG
 WELCOME_MESSAGE = config.WELCOME_MESSAGE
+USE_VIRTUAL_FS = config.VIRTUAL_FS  # Can be overridden by --virtual-fs CLI arg
 
-# Ensure workspace exists
-WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
+# Ensure workspace exists (only for physical filesystem mode)
+if not USE_VIRTUAL_FS:
+    WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
 
 # Initialize agent from config
 agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
+
+
+def get_workspace_for_session(session_id: Optional[str] = None):
+    """Get the workspace root for a session.
+
+    In virtual filesystem mode, returns a VirtualFilesystem for the session.
+    In physical mode, returns the WORKSPACE_ROOT Path.
+
+    Args:
+        session_id: Session ID (required for virtual FS mode, ignored otherwise)
+
+    Returns:
+        Path or VirtualFilesystem depending on USE_VIRTUAL_FS setting
+    """
+    if USE_VIRTUAL_FS:
+        if not session_id:
+            # Generate a new session if none provided
+            session_id = get_session_manager().create_session()
+        else:
+            # Get or create session
+            session_id = get_session_manager().get_or_create_session(session_id)
+        return get_session_manager().get_filesystem(session_id)
+    else:
+        return WORKSPACE_ROOT
+
+
+def get_or_create_session_id(existing_id: Optional[str] = None) -> str:
+    """Get existing session ID or create a new one.
+
+    Args:
+        existing_id: Existing session ID from cookie/store
+
+    Returns:
+        Valid session ID
+    """
+    if USE_VIRTUAL_FS:
+        return get_session_manager().get_or_create_session(existing_id)
+    else:
+        # In physical mode, still track session IDs but they all share the same workspace
+        return existing_id or str(uuid.uuid4())
 
 
 # =============================================================================
@@ -278,13 +237,13 @@ def get_colors(theme: str = "light") -> dict:
 # AGENT INTERACTION - WITH REAL-TIME STREAMING
 # =============================================================================
 
-# Global state for streaming updates
+# Global state for streaming updates (used in physical FS mode)
 _agent_state = {
     "running": False,
     "thinking": "",
     "todos": [],
     "tool_calls": [],  # Current turn's tool calls (reset each turn)
-    "canvas": load_canvas_from_markdown(WORKSPACE_ROOT),  # Load from canvas.md if exists
+    "canvas": load_canvas_from_markdown(WORKSPACE_ROOT) if not USE_VIRTUAL_FS else [],  # Load from canvas.md if exists (physical FS only)
     "response": "",
     "error": None,
     "interrupt": None,  # Track interrupt requests for human-in-the-loop
@@ -294,25 +253,110 @@ _agent_state = {
 }
 _agent_state_lock = threading.Lock()
 
+# Session-aware state for virtual FS mode
+# Each session gets its own agent instance and state
+_session_agents: Dict[str, Any] = {}
+_session_agent_states: Dict[str, Dict[str, Any]] = {}
+_session_agents_lock = threading.Lock()
 
-def request_agent_stop():
-    """Request the agent to stop execution."""
-    with _agent_state_lock:
-        _agent_state["stop_requested"] = True
-        _agent_state["last_update"] = time.time()
 
-def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: str = None):
-    """Run agent in background thread and update global state in real-time.
+def _get_default_agent_state() -> Dict[str, Any]:
+    """Return a fresh default agent state dict."""
+    return {
+        "running": False,
+        "thinking": "",
+        "todos": [],
+        "tool_calls": [],
+        "canvas": [],
+        "response": "",
+        "error": None,
+        "interrupt": None,
+        "last_update": time.time(),
+        "start_time": None,
+        "stop_requested": False,
+    }
+
+
+def _get_session_agent(session_id: str):
+    """Get or create agent for a session (virtual FS mode only).
+
+    Args:
+        session_id: The session ID.
+
+    Returns:
+        The agent instance for this session.
+    """
+    from .agent import create_session_agent
+
+    with _session_agents_lock:
+        if session_id not in _session_agents:
+            _session_agents[session_id] = create_session_agent(session_id)
+        return _session_agents[session_id]
+
+
+def _get_session_state(session_id: str) -> Dict[str, Any]:
+    """Get or create agent state for a session (virtual FS mode only).
+
+    Args:
+        session_id: The session ID.
+
+    Returns:
+        The agent state dict for this session.
+    """
+    with _session_agents_lock:
+        if session_id not in _session_agent_states:
+            _session_agent_states[session_id] = _get_default_agent_state()
+        return _session_agent_states[session_id]
+
+
+def _get_session_state_lock() -> threading.Lock:
+    """Get the lock for session state access."""
+    return _session_agents_lock
+
+
+def request_agent_stop(session_id: Optional[str] = None):
+    """Request the agent to stop execution.
+
+    Args:
+        session_id: Session ID for virtual FS mode, None for physical FS mode.
+    """
+    if USE_VIRTUAL_FS and session_id:
+        state = _get_session_state(session_id)
+        with _session_agents_lock:
+            state["stop_requested"] = True
+            state["last_update"] = time.time()
+    else:
+        with _agent_state_lock:
+            _agent_state["stop_requested"] = True
+            _agent_state["last_update"] = time.time()
+
+
+def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: str = None, session_id: Optional[str] = None):
+    """Run agent in background thread and update state in real-time.
 
     Args:
         message: User message to send to agent
         resume_data: Optional dict with 'decisions' to resume from interrupt
         workspace_path: Current workspace directory path to inject into agent context
+        session_id: Session ID for virtual FS mode (determines which agent and state to use)
     """
-    if not agent:
-        with _agent_state_lock:
-            _agent_state["response"] = f"⚠️ {_agent_state['error']}\n\nPlease check your setup and try again."
-            _agent_state["running"] = False
+    # Determine which agent and state to use based on mode
+    if USE_VIRTUAL_FS and session_id:
+        current_agent = _get_session_agent(session_id)
+        current_state = _get_session_state(session_id)
+        state_lock = _session_agents_lock
+        # Use session_id as thread_id for LangGraph checkpointing
+        current_thread_id = session_id
+    else:
+        current_agent = agent
+        current_state = _agent_state
+        state_lock = _agent_state_lock
+        current_thread_id = thread_id
+
+    if not current_agent:
+        with state_lock:
+            current_state["response"] = f"⚠️ {current_state.get('error', 'No agent available')}\n\nPlease check your setup and try again."
+            current_state["running"] = False
         return
 
     # Track tool calls by their ID for updating status
@@ -339,17 +383,23 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
 
     def _update_tool_call_result(tool_call_id: str, result: Any, status: str = "success"):
         """Update a tool call with its result."""
-        with _agent_state_lock:
-            for tc in _agent_state["tool_calls"]:
+        with state_lock:
+            for tc in current_state["tool_calls"]:
                 if tc.get("id") == tool_call_id:
                     tc["result"] = result
                     tc["status"] = status
                     break
-            _agent_state["last_update"] = time.time()
+            current_state["last_update"] = time.time()
+
+    # Set tool session context for virtual FS mode
+    # This allows tools like add_to_canvas to access the session's VirtualFilesystem
+    from .tools import set_tool_session_context, clear_tool_session_context
+    if USE_VIRTUAL_FS and session_id:
+        set_tool_session_context(session_id)
 
     try:
         # Prepare input based on whether we're resuming or starting fresh
-        stream_config = dict(configurable=dict(thread_id=thread_id))
+        stream_config = dict(configurable=dict(thread_id=current_thread_id))
 
         if message == "__RESUME__":
             # Resume from interrupt
@@ -364,24 +414,24 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                 message_with_context = message
             agent_input = {"messages": [{"role": "user", "content": message_with_context}]}
 
-        for update in agent.stream(agent_input, stream_mode="updates", config=stream_config):
+        for update in current_agent.stream(agent_input, stream_mode="updates", config=stream_config):
             # Check if stop was requested
-            with _agent_state_lock:
-                if _agent_state.get("stop_requested"):
-                    _agent_state["response"] = _agent_state.get("response", "") + "\n\nAgent stopped by user."
-                    _agent_state["running"] = False
-                    _agent_state["stop_requested"] = False
-                    _agent_state["last_update"] = time.time()
+            with state_lock:
+                if current_state.get("stop_requested"):
+                    current_state["response"] = current_state.get("response", "") + "\n\nAgent stopped by user."
+                    current_state["running"] = False
+                    current_state["stop_requested"] = False
+                    current_state["last_update"] = time.time()
                     return
 
             # Check for interrupt
             if isinstance(update, dict) and "__interrupt__" in update:
                 interrupt_value = update["__interrupt__"]
                 interrupt_data = _process_interrupt(interrupt_value)
-                with _agent_state_lock:
-                    _agent_state["interrupt"] = interrupt_data
-                    _agent_state["running"] = False  # Pause until user responds
-                    _agent_state["last_update"] = time.time()
+                with state_lock:
+                    current_state["interrupt"] = interrupt_data
+                    current_state["running"] = False  # Pause until user responds
+                    current_state["last_update"] = time.time()
                 return  # Exit stream, wait for user to resume
 
             if isinstance(update, dict):
@@ -400,9 +450,9 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                                     tool_call_map[serialized["id"]] = serialized
                                     new_tool_calls.append(serialized)
 
-                                with _agent_state_lock:
-                                    _agent_state["tool_calls"].extend(new_tool_calls)
-                                    _agent_state["last_update"] = time.time()
+                                with state_lock:
+                                    current_state["tool_calls"].extend(new_tool_calls)
+                                    current_state["last_update"] = time.time()
 
                             elif msg_type == 'ToolMessage' and hasattr(last_msg, 'name'):
                                 # Update tool call status when we get the result
@@ -451,9 +501,9 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                                         thinking_text = content.get('reflection', str(content))
 
                                     # Update state immediately
-                                    with _agent_state_lock:
-                                        _agent_state["thinking"] = thinking_text
-                                        _agent_state["last_update"] = time.time()
+                                    with state_lock:
+                                        current_state["thinking"] = thinking_text
+                                        current_state["last_update"] = time.time()
 
                                 elif last_msg.name == 'write_todos':
                                     content = last_msg.content
@@ -473,9 +523,9 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                                         todos = content
 
                                     # Update state immediately
-                                    with _agent_state_lock:
-                                        _agent_state["todos"] = todos
-                                        _agent_state["last_update"] = time.time()
+                                    with state_lock:
+                                        current_state["todos"] = todos
+                                        current_state["last_update"] = time.time()
 
                                 elif last_msg.name == 'add_to_canvas':
                                     content = last_msg.content
@@ -493,15 +543,16 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                                         canvas_item = {"type": "markdown", "data": str(content)}
 
                                     # Update state immediately - append to canvas
-                                    with _agent_state_lock:
-                                        _agent_state["canvas"].append(canvas_item)
-                                        _agent_state["last_update"] = time.time()
+                                    with state_lock:
+                                        current_state["canvas"].append(canvas_item)
+                                        current_state["last_update"] = time.time()
 
-                                        # Also export to markdown file
-                                        try:
-                                            export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
-                                        except Exception as e:
-                                            print(f"Failed to export canvas: {e}")
+                                        # Also export to markdown file (physical FS only)
+                                        if not USE_VIRTUAL_FS:
+                                            try:
+                                                export_canvas_to_markdown(current_state["canvas"], WORKSPACE_ROOT)
+                                            except Exception as e:
+                                                print(f"Failed to export canvas: {e}")
 
                                 elif last_msg.name == 'update_canvas_item':
                                     content = last_msg.content
@@ -518,22 +569,23 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
 
                                     item_id = canvas_item.get("id")
                                     if item_id:
-                                        with _agent_state_lock:
+                                        with state_lock:
                                             # Find and replace the item with matching ID
-                                            for i, existing in enumerate(_agent_state["canvas"]):
+                                            for i, existing in enumerate(current_state["canvas"]):
                                                 if existing.get("id") == item_id:
-                                                    _agent_state["canvas"][i] = canvas_item
+                                                    current_state["canvas"][i] = canvas_item
                                                     break
                                             else:
                                                 # If not found, append as new item
-                                                _agent_state["canvas"].append(canvas_item)
-                                            _agent_state["last_update"] = time.time()
+                                                current_state["canvas"].append(canvas_item)
+                                            current_state["last_update"] = time.time()
 
-                                            # Export to markdown file
-                                            try:
-                                                export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
-                                            except Exception as e:
-                                                print(f"Failed to export canvas: {e}")
+                                            # Export to markdown file (physical FS only)
+                                            if not USE_VIRTUAL_FS:
+                                                try:
+                                                    export_canvas_to_markdown(current_state["canvas"], WORKSPACE_ROOT)
+                                                except Exception as e:
+                                                    print(f"Failed to export canvas: {e}")
 
                                 elif last_msg.name == 'remove_canvas_item':
                                     content = last_msg.content
@@ -550,18 +602,19 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                                         item_id = None
 
                                     if item_id:
-                                        with _agent_state_lock:
-                                            _agent_state["canvas"] = [
-                                                item for item in _agent_state["canvas"]
+                                        with state_lock:
+                                            current_state["canvas"] = [
+                                                item for item in current_state["canvas"]
                                                 if item.get("id") != item_id
                                             ]
-                                            _agent_state["last_update"] = time.time()
+                                            current_state["last_update"] = time.time()
 
-                                            # Export to markdown file
-                                            try:
-                                                export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
-                                            except Exception as e:
-                                                print(f"Failed to export canvas: {e}")
+                                            # Export to markdown file (physical FS only)
+                                            if not USE_VIRTUAL_FS:
+                                                try:
+                                                    export_canvas_to_markdown(current_state["canvas"], WORKSPACE_ROOT)
+                                                except Exception as e:
+                                                    print(f"Failed to export canvas: {e}")
 
                                 elif last_msg.name in ('execute_cell', 'execute_all_cells'):
                                     # Extract canvas_items from cell execution results
@@ -590,17 +643,18 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
 
                                     # Add any canvas items found
                                     if canvas_items_to_add:
-                                        with _agent_state_lock:
+                                        with state_lock:
                                             for item in canvas_items_to_add:
                                                 if isinstance(item, dict) and item.get('type'):
-                                                    _agent_state["canvas"].append(item)
-                                            _agent_state["last_update"] = time.time()
+                                                    current_state["canvas"].append(item)
+                                            current_state["last_update"] = time.time()
 
-                                            # Export to markdown file
-                                            try:
-                                                export_canvas_to_markdown(_agent_state["canvas"], WORKSPACE_ROOT)
-                                            except Exception as e:
-                                                print(f"Failed to export canvas: {e}")
+                                            # Export to markdown file (physical FS only)
+                                            if not USE_VIRTUAL_FS:
+                                                try:
+                                                    export_canvas_to_markdown(current_state["canvas"], WORKSPACE_ROOT)
+                                                except Exception as e:
+                                                    print(f"Failed to export canvas: {e}")
 
                             elif hasattr(last_msg, 'content'):
                                 content = last_msg.content
@@ -618,19 +672,23 @@ def _run_agent_stream(message: str, resume_data: Dict = None, workspace_path: st
                                     response_text = " ".join(text_parts).strip()
 
                                 if response_text:
-                                    with _agent_state_lock:
-                                        _agent_state["response"] = response_text
-                                        _agent_state["last_update"] = time.time()
+                                    with state_lock:
+                                        current_state["response"] = response_text
+                                        current_state["last_update"] = time.time()
 
     except Exception as e:
-        with _agent_state_lock:
-            _agent_state["error"] = str(e)
-            _agent_state["response"] = f"Error: {str(e)}"
+        with state_lock:
+            current_state["error"] = str(e)
+            current_state["response"] = f"Error: {str(e)}"
 
     finally:
-        with _agent_state_lock:
-            _agent_state["running"] = False
-            _agent_state["last_update"] = time.time()
+        # Clear tool session context
+        if USE_VIRTUAL_FS and session_id:
+            clear_tool_session_context()
+
+        with state_lock:
+            current_state["running"] = False
+            current_state["last_update"] = time.time()
 
 
 def _process_interrupt(interrupt_value: Any) -> Dict[str, Any]:
@@ -729,20 +787,29 @@ def _process_interrupt(interrupt_value: Any) -> Dict[str, Any]:
 
     return interrupt_data
 
-def call_agent(message: str, resume_data: Dict = None, workspace_path: str = None):
+def call_agent(message: str, resume_data: Dict = None, workspace_path: str = None, session_id: Optional[str] = None):
     """Start agent execution in background thread.
 
     Args:
         message: User message to send to agent
         resume_data: Optional dict with decisions to resume from interrupt
         workspace_path: Current workspace directory path to inject into agent context
+        session_id: Session ID for virtual FS mode
     """
-    # Reset state but preserve canvas - do it all atomically
-    with _agent_state_lock:
-        existing_canvas = _agent_state.get("canvas", []).copy()
+    # Determine which state to use
+    if USE_VIRTUAL_FS and session_id:
+        current_state = _get_session_state(session_id)
+        state_lock = _session_agents_lock
+    else:
+        current_state = _agent_state
+        state_lock = _agent_state_lock
 
-        _agent_state.clear()
-        _agent_state.update({
+    # Reset state but preserve canvas - do it all atomically
+    with state_lock:
+        existing_canvas = current_state.get("canvas", []).copy()
+
+        current_state.clear()
+        current_state.update({
             "running": True,
             "thinking": "",
             "todos": [],
@@ -757,21 +824,30 @@ def call_agent(message: str, resume_data: Dict = None, workspace_path: str = Non
         })
 
     # Start background thread
-    thread = threading.Thread(target=_run_agent_stream, args=(message, resume_data, workspace_path))
+    thread = threading.Thread(target=_run_agent_stream, args=(message, resume_data, workspace_path, session_id))
     thread.daemon = True
     thread.start()
 
 
-def resume_agent_from_interrupt(decision: str, action: str = "approve", action_requests: List[Dict] = None):
+def resume_agent_from_interrupt(decision: str, action: str = "approve", action_requests: List[Dict] = None, session_id: Optional[str] = None):
     """Resume agent from an interrupt with the user's decision.
 
     Args:
         decision: User's response/decision text
         action: One of 'approve', 'reject', 'edit'
         action_requests: List of action requests from the interrupt (for edit mode)
+        session_id: Session ID for virtual FS mode
     """
-    with _agent_state_lock:
-        interrupt_data = _agent_state.get("interrupt")
+    # Determine which state to use
+    if USE_VIRTUAL_FS and session_id:
+        current_state = _get_session_state(session_id)
+        state_lock = _session_agents_lock
+    else:
+        current_state = _agent_state
+        state_lock = _agent_state_lock
+
+    with state_lock:
+        interrupt_data = current_state.get("interrupt")
         if not interrupt_data:
             return
 
@@ -780,16 +856,16 @@ def resume_agent_from_interrupt(decision: str, action: str = "approve", action_r
             action_requests = interrupt_data.get("action_requests", [])
 
         # Clear interrupt and set running, but preserve tool_calls and canvas
-        existing_tool_calls = _agent_state.get("tool_calls", []).copy()
-        existing_canvas = _agent_state.get("canvas", []).copy()
+        existing_tool_calls = current_state.get("tool_calls", []).copy()
+        existing_canvas = current_state.get("canvas", []).copy()
 
-        _agent_state["interrupt"] = None
-        _agent_state["running"] = True
-        _agent_state["response"] = ""  # Clear any previous response
-        _agent_state["error"] = None  # Clear any previous error
-        _agent_state["tool_calls"] = existing_tool_calls  # Keep existing tool calls
-        _agent_state["canvas"] = existing_canvas  # Keep canvas
-        _agent_state["last_update"] = time.time()
+        current_state["interrupt"] = None
+        current_state["running"] = True
+        current_state["response"] = ""  # Clear any previous response
+        current_state["error"] = None  # Clear any previous error
+        current_state["tool_calls"] = existing_tool_calls  # Keep existing tool calls
+        current_state["canvas"] = existing_canvas  # Keep canvas
+        current_state["last_update"] = time.time()
 
     # Build decisions list in the format expected by deepagents HITL middleware
     # Format: {"decisions": [{"type": "approve"}, {"type": "reject", "message": "..."}, ...]}
@@ -813,10 +889,10 @@ def resume_agent_from_interrupt(decision: str, action: str = "approve", action_r
             tool_names = [ar.get("tool", "unknown") for ar in action_requests]
             tool_info = f" ({', '.join(tool_names)})"
 
-        with _agent_state_lock:
-            _agent_state["running"] = False
-            _agent_state["response"] = f"Action rejected{tool_info}: {reject_message}"
-            _agent_state["last_update"] = time.time()
+        with state_lock:
+            current_state["running"] = False
+            current_state["response"] = f"Action rejected{tool_info}: {reject_message}"
+            current_state["last_update"] = time.time()
 
         return  # Don't resume the agent
     else:  # edit - provide edited action
@@ -846,41 +922,62 @@ def resume_agent_from_interrupt(decision: str, action: str = "approve", action_r
 
     # Start background thread with resume value
     # Pass a special marker to indicate this is a resume operation
-    thread = threading.Thread(target=_run_agent_stream, args=("__RESUME__", resume_value))
+    thread = threading.Thread(target=_run_agent_stream, args=("__RESUME__", resume_value, None, session_id))
     thread.daemon = True
     thread.start()
 
-def get_agent_state() -> Dict[str, Any]:
+def get_agent_state(session_id: Optional[str] = None) -> Dict[str, Any]:
     """Get current agent state (thread-safe).
+
+    Args:
+        session_id: Session ID for virtual FS mode, None for physical FS mode.
 
     Returns a deep copy of mutable collections to prevent race conditions.
     """
-    with _agent_state_lock:
-        state = _agent_state.copy()
+    if USE_VIRTUAL_FS and session_id:
+        current_state = _get_session_state(session_id)
+        state_lock = _session_agents_lock
+    else:
+        current_state = _agent_state
+        state_lock = _agent_state_lock
+
+    with state_lock:
+        state = current_state.copy()
         # Deep copy mutable collections to prevent race conditions during rendering
-        state["tool_calls"] = copy.deepcopy(_agent_state["tool_calls"])
-        state["todos"] = copy.deepcopy(_agent_state["todos"])
-        state["canvas"] = copy.deepcopy(_agent_state["canvas"])
+        state["tool_calls"] = copy.deepcopy(current_state["tool_calls"])
+        state["todos"] = copy.deepcopy(current_state["todos"])
+        state["canvas"] = copy.deepcopy(current_state["canvas"])
         return state
 
-def reset_agent_state():
+
+def reset_agent_state(session_id: Optional[str] = None):
     """Reset agent state for a fresh session (thread-safe).
 
     Called on page load to ensure clean state after browser refresh.
-    Preserves canvas items loaded from canvas.md.
+    Preserves canvas items loaded from canvas.md (physical FS only).
+
+    Args:
+        session_id: Session ID for virtual FS mode, None for physical FS mode.
     """
-    with _agent_state_lock:
-        _agent_state["running"] = False
-        _agent_state["thinking"] = ""
-        _agent_state["todos"] = []
-        _agent_state["tool_calls"] = []
-        _agent_state["response"] = ""
-        _agent_state["error"] = None
-        _agent_state["interrupt"] = None
-        _agent_state["start_time"] = None
-        _agent_state["stop_requested"] = False
-        _agent_state["last_update"] = time.time()
-        # Note: canvas is preserved - it's loaded from canvas.md on startup
+    if USE_VIRTUAL_FS and session_id:
+        current_state = _get_session_state(session_id)
+        state_lock = _session_agents_lock
+    else:
+        current_state = _agent_state
+        state_lock = _agent_state_lock
+
+    with state_lock:
+        current_state["running"] = False
+        current_state["thinking"] = ""
+        current_state["todos"] = []
+        current_state["tool_calls"] = []
+        current_state["response"] = ""
+        current_state["error"] = None
+        current_state["interrupt"] = None
+        current_state["start_time"] = None
+        current_state["stop_requested"] = False
+        current_state["last_update"] = time.time()
+        # Note: canvas is preserved - it's loaded from canvas.md on startup (physical FS only)
 
 # =============================================================================
 # DASH APP
@@ -927,8 +1024,12 @@ def create_layout():
     title = getattr(agent, 'name', None) or APP_TITLE
     subtitle = getattr(agent, 'description', None) or APP_SUBTITLE
 
+    # In virtual FS mode, pass None for workspace_root to show empty tree initially
+    # The file tree will be populated per-session via callbacks
+    workspace_for_layout = None if USE_VIRTUAL_FS else WORKSPACE_ROOT
+
     return create_layout_component(
-        workspace_root=WORKSPACE_ROOT,
+        workspace_root=workspace_for_layout,
         app_title=title,
         app_subtitle=subtitle,
         colors=COLORS,
@@ -951,30 +1052,35 @@ app.layout = create_layout
 @app.callback(
     [Output("chat-messages", "children"),
      Output("skip-history-render", "data", allow_duplicate=True),
-     Output("session-initialized", "data", allow_duplicate=True)],
+     Output("session-initialized", "data", allow_duplicate=True),
+     Output("session-id", "data", allow_duplicate=True)],
     [Input("chat-history", "data")],
     [State("theme-store", "data"),
      State("skip-history-render", "data"),
-     State("session-initialized", "data")],
-    prevent_initial_call="initial_duplicate"
+     State("session-initialized", "data"),
+     State("session-id", "data")],
+    prevent_initial_call='initial_duplicate'
 )
-def display_initial_messages(history, theme, skip_render, session_initialized):
+def display_initial_messages(history, theme, skip_render, session_initialized, session_id):
     """Display initial welcome message or chat history.
 
     On first call (page load), resets agent state for a fresh session.
     Skip rendering if skip_render flag is set - this prevents duplicate renders
     when poll_agent_updates already handles the rendering.
     """
-    # Reset agent state on page load (first callback trigger)
+    # Initialize session on page load (first callback trigger)
+    new_session_id = session_id
     if not session_initialized:
-        reset_agent_state()
+        # Create or validate session ID for virtual FS mode
+        new_session_id = get_or_create_session_id(session_id)
+        reset_agent_state(new_session_id)
 
     # Skip if flag is set (poll_agent_updates already rendered)
     if skip_render:
-        return no_update, False, True  # Reset skip flag, mark session initialized
+        return no_update, False, True, new_session_id  # Reset skip flag, mark session initialized
 
     if not history:
-        return [], False, True
+        return [], False, True, new_session_id
 
     colors = get_colors(theme or "light")
     messages = []
@@ -991,7 +1097,41 @@ def display_initial_messages(history, theme, skip_render, session_initialized):
             todos_block = format_todos_inline(msg["todos"], colors)
             if todos_block:
                 messages.append(todos_block)
-    return messages, False, True
+    return messages, False, True, new_session_id
+
+
+# Initialize file tree for virtual FS sessions
+@app.callback(
+    Output("file-tree", "children", allow_duplicate=True),
+    Input("session-initialized", "data"),
+    [State("session-id", "data"),
+     State("current-workspace-path", "data"),
+     State("theme-store", "data")],
+    prevent_initial_call=True
+)
+def initialize_file_tree_for_session(session_initialized, session_id, current_workspace, theme):
+    """Initialize file tree when a new session is created (virtual FS mode).
+
+    In virtual FS mode, the file tree starts empty. This callback populates it
+    when the session is initialized, showing the default workspace structure.
+    """
+    if not USE_VIRTUAL_FS:
+        raise PreventUpdate
+
+    if not session_initialized or not session_id:
+        raise PreventUpdate
+
+    colors = get_colors(theme or "light")
+
+    # Get workspace for this session
+    workspace_root = get_workspace_for_session(session_id)
+
+    # Calculate current workspace directory
+    current_workspace_dir = workspace_root.path(current_workspace) if current_workspace else workspace_root.root
+
+    # Build and render file tree
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
+
 
 # Chat callbacks
 @app.callback(
@@ -1005,10 +1145,11 @@ def display_initial_messages(history, theme, skip_render, session_initialized):
     [State("chat-input", "value"),
      State("chat-history", "data"),
      State("theme-store", "data"),
-     State("current-workspace-path", "data")],
+     State("current-workspace-path", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def handle_send_immediate(n_clicks, n_submit, message, history, theme, current_workspace_path):
+def handle_send_immediate(n_clicks, n_submit, message, history, theme, current_workspace_path, session_id):
     """Phase 1: Immediately show user message and start agent."""
     if not message or not message.strip():
         raise PreventUpdate
@@ -1037,11 +1178,19 @@ def handle_send_immediate(n_clicks, n_submit, message, history, theme, current_w
 
     messages.append(format_loading(colors))
 
-    # Calculate full workspace path for agent context
-    workspace_full_path = WORKSPACE_ROOT / current_workspace_path if current_workspace_path else WORKSPACE_ROOT
+    # Calculate workspace path for agent context
+    # In virtual FS mode, use virtual paths (e.g., /workspace/subdir)
+    # In physical FS mode, use actual filesystem paths
+    if USE_VIRTUAL_FS:
+        # Virtual FS mode: use the virtual path directly
+        # The VirtualFilesystem root is /workspace, so paths are like /workspace or /workspace/subdir
+        workspace_full_path = f"/workspace/{current_workspace_path}" if current_workspace_path else "/workspace"
+    else:
+        # Physical FS mode: use actual filesystem path
+        workspace_full_path = str(WORKSPACE_ROOT / current_workspace_path if current_workspace_path else WORKSPACE_ROOT)
 
     # Start agent in background with workspace context
-    call_agent(message, workspace_path=str(workspace_full_path))
+    call_agent(message, workspace_path=workspace_full_path, session_id=session_id)
 
     # Enable polling
     return messages, history, "", message, False
@@ -1055,10 +1204,11 @@ def handle_send_immediate(n_clicks, n_submit, message, history, theme, current_w
     Input("poll-interval", "n_intervals"),
     [State("chat-history", "data"),
      State("pending-message", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def poll_agent_updates(n_intervals, history, pending_message, theme):
+def poll_agent_updates(n_intervals, history, pending_message, theme, session_id):
     """Poll for agent updates and display them in real-time.
 
     Tool calls are stored in history and persist across turns.
@@ -1066,7 +1216,7 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
     - {"role": "user", "content": "..."} - user message
     - {"role": "assistant", "content": "...", "tool_calls": [...]} - assistant message with tool calls
     """
-    state = get_agent_state()
+    state = get_agent_state(session_id)
     history = history or []
     colors = get_colors(theme or "light")
 
@@ -1196,11 +1346,12 @@ def poll_agent_updates(n_intervals, history, pending_message, theme):
 @app.callback(
     Output("stop-btn", "style"),
     Input("poll-interval", "n_intervals"),
+    State("session-id", "data"),
     prevent_initial_call=True
 )
-def update_stop_button_visibility(n_intervals):
+def update_stop_button_visibility(n_intervals, session_id):
     """Show stop button when agent is running, hide otherwise."""
-    state = get_agent_state()
+    state = get_agent_state(session_id)
     if state.get("running"):
         return {}  # Show button (remove display:none)
     else:
@@ -1213,10 +1364,11 @@ def update_stop_button_visibility(n_intervals):
      Output("poll-interval", "disabled", allow_duplicate=True)],
     Input("stop-btn", "n_clicks"),
     [State("chat-history", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def handle_stop_button(n_clicks, history, theme):
+def handle_stop_button(n_clicks, history, theme, session_id):
     """Handle stop button click to stop agent execution."""
     if not n_clicks:
         raise PreventUpdate
@@ -1225,7 +1377,7 @@ def handle_stop_button(n_clicks, history, theme):
     history = history or []
 
     # Request the agent to stop
-    request_agent_stop()
+    request_agent_stop(session_id)
 
     # Render current messages with a stopping indicator
     def render_history_messages(history):
@@ -1267,10 +1419,11 @@ def handle_stop_button(n_clicks, history, theme):
      Input("interrupt-edit-btn", "n_clicks")],
     [State("interrupt-input", "value"),
      State("chat-history", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_value, history, theme):
+def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_value, history, theme, session_id):
     """Handle user response to an interrupt.
 
     Note: Click parameters are required for Dash callback inputs but we use
@@ -1312,7 +1465,7 @@ def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_
         raise PreventUpdate
 
     # Resume the agent with the user's decision
-    resume_agent_from_interrupt(decision, action)
+    resume_agent_from_interrupt(decision, action, session_id=session_id)
 
     # Show loading state while agent resumes
     messages = []
@@ -1349,16 +1502,20 @@ def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_
      State({"type": "folder-children", "path": ALL}, "style"),
      State({"type": "folder-icon", "path": ALL}, "style"),
      State({"type": "folder-children", "path": ALL}, "children"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, children_styles, icon_styles, children_content, theme):
+def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, children_styles, icon_styles, children_content, theme, session_id):
     """Toggle folder expansion and lazy load contents if needed."""
     ctx = callback_context
     if not ctx.triggered or not any(n_clicks):
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
+
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
     triggered = ctx.triggered[0]["prop_id"]
     try:
         id_str = triggered.rsplit(".", 1)[0]
@@ -1400,7 +1557,7 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
                     current_content[0].get("props", {}).get("children") == "Loading..."):
                     # Load folder contents using real path
                     try:
-                        folder_items = load_folder_contents(folder_rel_path, WORKSPACE_ROOT)
+                        folder_items = load_folder_contents(folder_rel_path, workspace_root)
                         loaded_content = render_file_tree(folder_items, colors, STYLES,
                                                           level=folder_rel_path.count("/") + folder_rel_path.count("\\") + 1,
                                                           parent_path=folder_rel_path)
@@ -1455,10 +1612,11 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
      State({"type": "folder-select", "path": ALL}, "data-folderpath"),
      State({"type": "folder-select", "path": ALL}, "n_clicks"),
      State("current-workspace-path", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, folder_paths, prev_clicks, current_path, theme):
+def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, folder_paths, _prev_clicks, current_path, theme, session_id):
     """Enter a folder (double-click) or navigate via breadcrumb."""
     ctx = callback_context
     if not ctx.triggered:
@@ -1499,7 +1657,6 @@ def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, fold
         for i, folder_id in enumerate(folder_ids):
             if folder_id["path"] == clicked_path:
                 current_clicks = folder_clicks[i] if i < len(folder_clicks) else 0
-                previous_clicks = prev_clicks[i] if i < len(prev_clicks) else 0
 
                 # Only enter on double-click (clicks increased and is even number >= 2)
                 if current_clicks and current_clicks >= 2 and current_clicks % 2 == 0:
@@ -1554,8 +1711,14 @@ def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, fold
                 )
             )
 
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
     # Calculate the actual workspace path
-    workspace_full_path = WORKSPACE_ROOT / new_path if new_path else WORKSPACE_ROOT
+    if USE_VIRTUAL_FS:
+        workspace_full_path = workspace_root.path(new_path) if new_path else workspace_root.root
+    else:
+        workspace_full_path = workspace_root / new_path if new_path else workspace_root
 
     # Render new file tree
     file_tree = render_file_tree(
@@ -1576,10 +1739,11 @@ def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, fold
     Input({"type": "file-item", "path": ALL}, "n_clicks"),
     [State({"type": "file-item", "path": ALL}, "id"),
      State("file-click-tracker", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def open_file_modal(all_n_clicks, all_ids, click_tracker, theme):
+def open_file_modal(all_n_clicks, all_ids, click_tracker, theme, session_id):
     """Open file in modal - only on actual new clicks."""
     ctx = callback_context
 
@@ -1627,13 +1791,19 @@ def open_file_modal(all_n_clicks, all_ids, click_tracker, theme):
         # Still need to return updated tracker to avoid stale state
         raise PreventUpdate
 
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
     # Verify file exists and is a file
-    full_path = WORKSPACE_ROOT / file_path
+    if USE_VIRTUAL_FS:
+        full_path = workspace_root.path(file_path)
+    else:
+        full_path = workspace_root / file_path
     if not full_path.exists() or not full_path.is_file():
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
-    content, is_text, error = read_file_content(WORKSPACE_ROOT, file_path)
+    content, is_text, error = read_file_content(workspace_root, file_path)
     filename = Path(file_path).name
 
     if is_text and content:
@@ -1672,10 +1842,11 @@ def open_file_modal(all_n_clicks, all_ids, click_tracker, theme):
 @app.callback(
     Output("file-download", "data", allow_duplicate=True),
     Input("modal-download-btn", "n_clicks"),
-    State("file-to-view", "data"),
+    [State("file-to-view", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def download_from_modal(n_clicks, file_path):
+def download_from_modal(n_clicks, file_path, session_id):
     """Download file from modal."""
     ctx = callback_context
     if not ctx.triggered:
@@ -1689,7 +1860,10 @@ def download_from_modal(n_clicks, file_path):
     if not n_clicks or not file_path:
         raise PreventUpdate
 
-    b64, filename, mime = get_file_download_data(WORKSPACE_ROOT, file_path)
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
+    b64, filename, mime = get_file_download_data(workspace_root, file_path)
     if not b64:
         raise PreventUpdate
 
@@ -1706,10 +1880,15 @@ def open_terminal(n_clicks):
     """Open system terminal at workspace directory."""
     if not n_clicks:
         raise PreventUpdate
-    
+
+    # Terminal doesn't work with virtual filesystem (no physical path)
+    if USE_VIRTUAL_FS:
+        print("Terminal not available in virtual filesystem mode")
+        raise PreventUpdate
+
     workspace_path = str(WORKSPACE_ROOT)
     system = platform.system()
-    
+
     try:
         if system == "Darwin":  # macOS
             subprocess.Popen(["open", "-a", "Terminal", workspace_path])
@@ -1731,7 +1910,7 @@ def open_terminal(n_clicks):
                     continue
     except Exception as e:
         print(f"Failed to open terminal: {e}")
-    
+
     raise PreventUpdate
 
 
@@ -1742,27 +1921,31 @@ def open_terminal(n_clicks):
     Input("refresh-btn", "n_clicks"),
     [State("current-workspace-path", "data"),
      State("theme-store", "data"),
-     State("collapsed-canvas-items", "data")],
+     State("collapsed-canvas-items", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids):
+def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids, session_id):
     """Refresh both file tree and canvas content."""
-    global _agent_state
     colors = get_colors(theme or "light")
     collapsed_ids = collapsed_ids or []
 
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
     # Calculate current workspace directory
-    current_workspace_dir = WORKSPACE_ROOT / current_workspace if current_workspace else WORKSPACE_ROOT
+    if USE_VIRTUAL_FS:
+        current_workspace_dir = workspace_root.path(current_workspace) if current_workspace else workspace_root.root
+    else:
+        current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
 
     # Refresh file tree for current workspace
     file_tree = render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
 
-    # Refresh canvas by reloading from .canvas/canvas.md file (always from original root)
-    canvas_items = load_canvas_from_markdown(WORKSPACE_ROOT)
-
-    # Update agent state with reloaded canvas
-    with _agent_state_lock:
-        _agent_state["canvas"] = canvas_items
+    # Re-render canvas from current in-memory state (don't reload from file)
+    # This preserves canvas items that may not have been exported to .canvas/canvas.md yet
+    state = get_agent_state(session_id)
+    canvas_items = state.get("canvas", [])
 
     # Render the canvas items with preserved collapsed state
     canvas_content = render_canvas_items(canvas_items, colors, collapsed_ids)
@@ -1776,17 +1959,25 @@ def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids):
     Input("file-upload-sidebar", "contents"),
     [State("file-upload-sidebar", "filename"),
      State("current-workspace-path", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def handle_sidebar_upload(contents, filenames, current_workspace, theme):
+def handle_sidebar_upload(contents, filenames, current_workspace, theme, session_id):
     """Handle file uploads from sidebar button to current workspace."""
     if not contents:
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
+
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
     # Calculate current workspace directory
-    current_workspace_dir = WORKSPACE_ROOT / current_workspace if current_workspace else WORKSPACE_ROOT
+    if USE_VIRTUAL_FS:
+        current_workspace_dir = workspace_root.path(current_workspace) if current_workspace else workspace_root.root
+    else:
+        current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
 
     for content, filename in zip(contents, filenames):
         try:
@@ -1842,10 +2033,11 @@ def toggle_create_folder_modal(open_clicks, cancel_clicks, confirm_clicks, is_op
     Input("confirm-folder-btn", "n_clicks"),
     [State("new-folder-name", "value"),
      State("current-workspace-path", "data"),
-     State("theme-store", "data")],
+     State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def create_folder(n_clicks, folder_name, current_workspace, theme):
+def create_folder(n_clicks, folder_name, current_workspace, theme, session_id):
     """Create a new folder in the current workspace directory."""
     if not n_clicks:
         raise PreventUpdate
@@ -1862,8 +2054,15 @@ def create_folder(n_clicks, folder_name, current_workspace, theme):
     if any(char in folder_name for char in invalid_chars):
         return no_update, f"Folder name cannot contain: {' '.join(invalid_chars)}", no_update
 
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
     # Calculate current workspace directory
-    current_workspace_dir = WORKSPACE_ROOT / current_workspace if current_workspace else WORKSPACE_ROOT
+    if USE_VIRTUAL_FS:
+        current_workspace_dir = workspace_root.path(current_workspace) if current_workspace else workspace_root.root
+    else:
+        current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
+
     folder_path = current_workspace_dir / folder_name
 
     if folder_path.exists():
@@ -1935,12 +2134,13 @@ def toggle_view(view_value):
     [Input("poll-interval", "n_intervals"),
      Input("sidebar-view-toggle", "value")],
     [State("theme-store", "data"),
-     State("collapsed-canvas-items", "data")],
+     State("collapsed-canvas-items", "data"),
+     State("session-id", "data")],
     prevent_initial_call=False
 )
-def update_canvas_content(n_intervals, view_value, theme, collapsed_ids):
+def update_canvas_content(n_intervals, view_value, theme, collapsed_ids, session_id):
     """Update canvas content from agent state."""
-    state = get_agent_state()
+    state = get_agent_state(session_id)
     canvas_items = state.get("canvas", [])
     colors = get_colors(theme or "light")
     collapsed_ids = collapsed_ids or []
@@ -1948,6 +2148,50 @@ def update_canvas_content(n_intervals, view_value, theme, collapsed_ids):
     # Use imported rendering function with preserved collapsed state
     return render_canvas_items(canvas_items, colors, collapsed_ids)
 
+
+# File tree polling update - refresh file tree during agent execution
+@app.callback(
+    Output("file-tree", "children", allow_duplicate=True),
+    Input("poll-interval", "n_intervals"),
+    [State("current-workspace-path", "data"),
+     State("theme-store", "data"),
+     State("session-id", "data"),
+     State("sidebar-view-toggle", "value")],
+    prevent_initial_call=True
+)
+def poll_file_tree_update(n_intervals, current_workspace, theme, session_id, view_value):
+    """Refresh file tree during agent execution to show newly created files.
+
+    This callback runs on each poll interval and refreshes the file tree
+    so that files created by the agent are visible in real-time.
+    Only updates when viewing files (not canvas).
+    """
+    # Only refresh when viewing files panel
+    if view_value != "files":
+        raise PreventUpdate
+
+    # Get agent state to check if we should refresh
+    state = get_agent_state(session_id)
+
+    # Only refresh if agent is running or just finished (within last update window)
+    # This avoids unnecessary refreshes when agent is idle
+    last_update = state.get("last_update", 0)
+    if not state["running"] and (time.time() - last_update) > 2:
+        raise PreventUpdate
+
+    colors = get_colors(theme or "light")
+
+    # Get workspace for this session (virtual or physical)
+    workspace_root = get_workspace_for_session(session_id)
+
+    # Calculate current workspace directory
+    if USE_VIRTUAL_FS:
+        current_workspace_dir = workspace_root.path(current_workspace) if current_workspace else workspace_root.root
+    else:
+        current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
+
+    # Refresh file tree
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
 
 
 # Open clear canvas confirmation modal
@@ -1970,10 +2214,11 @@ def open_clear_canvas_modal(n_clicks):
      Output("collapsed-canvas-items", "data", allow_duplicate=True)],
     [Input("confirm-clear-canvas-btn", "n_clicks"),
      Input("cancel-clear-canvas-btn", "n_clicks")],
-    [State("theme-store", "data")],
+    [State("theme-store", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def handle_clear_canvas_confirmation(confirm_clicks, cancel_clicks, theme):
+def handle_clear_canvas_confirmation(confirm_clicks, cancel_clicks, theme, session_id):
     """Handle the clear canvas confirmation - either clear or cancel."""
     ctx = callback_context
     if not ctx.triggered:
@@ -1994,15 +2239,31 @@ def handle_clear_canvas_confirmation(confirm_clicks, cancel_clicks, theme):
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        # Get workspace for this session (virtual or physical)
+        workspace_root = get_workspace_for_session(session_id)
+
         # Archive .canvas folder if it exists (contains canvas.md and all assets)
-        canvas_dir = WORKSPACE_ROOT / ".canvas"
-        if canvas_dir.exists() and canvas_dir.is_dir():
+        # Note: Archive only works with physical filesystem
+        if not USE_VIRTUAL_FS:
+            canvas_dir = workspace_root / ".canvas"
+            if canvas_dir.exists() and canvas_dir.is_dir():
+                try:
+                    archive_dir = workspace_root / f".canvas_{timestamp}"
+                    shutil.move(str(canvas_dir), str(archive_dir))
+                    print(f"Archived .canvas folder to {archive_dir}")
+                except Exception as e:
+                    print(f"Failed to archive .canvas folder: {e}")
+        else:
+            # For virtual FS, just clear the .canvas directory
             try:
-                archive_dir = WORKSPACE_ROOT / f".canvas_{timestamp}"
-                shutil.move(str(canvas_dir), str(archive_dir))
-                print(f"Archived .canvas folder to {archive_dir}")
+                canvas_path = workspace_root.path("/.canvas")
+                if canvas_path.exists():
+                    # Clear files in the .canvas directory
+                    for item in canvas_path.iterdir():
+                        if item.is_file():
+                            item.unlink()
             except Exception as e:
-                print(f"Failed to archive .canvas folder: {e}")
+                print(f"Failed to clear virtual canvas: {e}")
 
         # Clear canvas in state
         with _agent_state_lock:
@@ -2158,10 +2419,11 @@ def open_delete_confirmation(all_clicks, all_ids):
      Input("cancel-delete-canvas-btn", "n_clicks")],
     [State("delete-canvas-item-id", "data"),
      State("theme-store", "data"),
-     State("collapsed-canvas-items", "data")],
+     State("collapsed-canvas-items", "data"),
+     State("session-id", "data")],
     prevent_initial_call=True
 )
-def handle_delete_confirmation(confirm_clicks, cancel_clicks, item_id, theme, collapsed_ids):
+def handle_delete_confirmation(confirm_clicks, cancel_clicks, item_id, theme, collapsed_ids, session_id):
     """Handle the delete confirmation - either delete or cancel."""
     ctx = callback_context
     if not ctx.triggered:
@@ -2177,23 +2439,34 @@ def handle_delete_confirmation(confirm_clicks, cancel_clicks, item_id, theme, co
         if not confirm_clicks or not item_id:
             raise PreventUpdate
 
-        global _agent_state
         colors = get_colors(theme or "light")
         collapsed_ids = collapsed_ids or []
 
-        # Remove the item from canvas
-        with _agent_state_lock:
-            _agent_state["canvas"] = [
-                item for item in _agent_state["canvas"]
-                if item.get("id") != item_id
-            ]
-            canvas_items = _agent_state["canvas"].copy()
+        # Get workspace for this session (virtual or physical)
+        workspace_root = get_workspace_for_session(session_id)
 
-            # Export updated canvas to markdown file
-            try:
-                export_canvas_to_markdown(canvas_items, WORKSPACE_ROOT)
-            except Exception as e:
-                print(f"Failed to export canvas after delete: {e}")
+        # Remove the item from canvas (session-specific in virtual FS mode)
+        if USE_VIRTUAL_FS and session_id:
+            current_state = _get_session_state(session_id)
+            with _session_agents_lock:
+                current_state["canvas"] = [
+                    item for item in current_state.get("canvas", [])
+                    if item.get("id") != item_id
+                ]
+                canvas_items = current_state["canvas"].copy()
+        else:
+            with _agent_state_lock:
+                _agent_state["canvas"] = [
+                    item for item in _agent_state["canvas"]
+                    if item.get("id") != item_id
+                ]
+                canvas_items = _agent_state["canvas"].copy()
+
+        # Export updated canvas to markdown file
+        try:
+            export_canvas_to_markdown(canvas_items, workspace_root)
+        except Exception as e:
+            print(f"Failed to export canvas after delete: {e}")
 
         # Remove deleted item from collapsed_ids if present
         new_collapsed_ids = [cid for cid in collapsed_ids if cid != item_id]
@@ -2267,7 +2540,8 @@ def run_app(
     title=None,
     subtitle=None,
     welcome_message=None,
-    config_file=None
+    config_file=None,
+    virtual_fs=None
 ):
     """
     Run DeepAgent Dash programmatically.
@@ -2289,6 +2563,9 @@ def run_app(
         subtitle (str, optional): Application subtitle
         welcome_message (str, optional): Welcome message shown on startup (supports markdown)
         config_file (str, optional): Path to config file (default: ./config.py)
+        virtual_fs (bool, optional): Use in-memory virtual filesystem instead of disk.
+            When enabled, each session gets isolated ephemeral storage.
+            Can also be set via DEEPAGENT_SESSION_ISOLATION=true environment variable.
 
     Returns:
         int: Exit code (0 for success, non-zero for error)
@@ -2308,7 +2585,10 @@ def run_app(
         >>> # Without agent (manual mode)
         >>> run_app(workspace="~/my-workspace", debug=True)
     """
-    global WORKSPACE_ROOT, APP_TITLE, APP_SUBTITLE, PORT, HOST, DEBUG, WELCOME_MESSAGE, agent, AGENT_ERROR, args
+    global WORKSPACE_ROOT, APP_TITLE, APP_SUBTITLE, PORT, HOST, DEBUG, WELCOME_MESSAGE, agent, AGENT_ERROR, args, USE_VIRTUAL_FS
+
+    # Determine virtual filesystem mode (CLI arg > env var > config default)
+    USE_VIRTUAL_FS = virtual_fs if virtual_fs is not None else config.VIRTUAL_FS
 
     # Load config file if specified and exists
     config_module = None
@@ -2378,16 +2658,22 @@ def run_app(
             # Use default config agent
             agent, AGENT_ERROR = load_agent_from_spec(config.AGENT_SPEC)
 
-    # Ensure workspace exists
-    WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
-
-    # Set environment variable for agent to access workspace
-    # This allows user agents to read DEEPAGENT_WORKSPACE_ROOT
-    os.environ['DEEPAGENT_WORKSPACE_ROOT'] = str(WORKSPACE_ROOT)
-
-    # Update global state to use the configured workspace
+    # Update global agent state
     global _agent_state
-    _agent_state["canvas"] = load_canvas_from_markdown(WORKSPACE_ROOT)
+
+    # Ensure workspace exists (only for physical filesystem mode)
+    if not USE_VIRTUAL_FS:
+        WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
+
+        # Set environment variable for agent to access workspace
+        # This allows user agents to read DEEPAGENT_WORKSPACE_ROOT
+        os.environ['DEEPAGENT_WORKSPACE_ROOT'] = str(WORKSPACE_ROOT)
+
+        # Update global state to use the configured workspace
+        _agent_state["canvas"] = load_canvas_from_markdown(WORKSPACE_ROOT)
+    else:
+        # For virtual FS, canvas is loaded per-session in callbacks
+        _agent_state["canvas"] = []
 
     # Create a mock args object for compatibility with existing code
     class Args:
@@ -2400,9 +2686,13 @@ def run_app(
     print("\n" + "="*50)
     print(f"  {APP_TITLE}")
     print("="*50)
-    print(f"  Workspace: {WORKSPACE_ROOT}")
-    if workspace:
-        print(f"    (from CLI: --workspace {workspace})")
+    if USE_VIRTUAL_FS:
+        print("  Filesystem: Virtual (in-memory, ephemeral)")
+        print("    Sessions are isolated and data is not persisted")
+    else:
+        print(f"  Workspace: {WORKSPACE_ROOT}")
+        if workspace:
+            print(f"    (from CLI: --workspace {workspace})")
     print(f"  Agent: {'Ready' if agent else 'Not available'}")
     if agent_spec:
         print(f"    (from CLI: --agent {agent_spec})")
@@ -2419,24 +2709,3 @@ def run_app(
     except Exception as e:
         print(f"\n❌ Error running app: {e}")
         return 1
-
-
-# =============================================================================
-# MAIN - BACKWARDS COMPATIBILITY
-# =============================================================================
-
-if __name__ == "__main__":
-    # Parse CLI arguments
-    args = parse_args()
-
-    # When run directly (not as package), use original CLI arg parsing
-    sys.exit(run_app(
-        workspace=args.workspace if args.workspace else None,
-        agent_spec=args.agent if args.agent else None,
-        port=args.port if args.port else None,
-        host=args.host if args.host else None,
-        debug=args.debug if args.debug else (not args.no_debug if args.no_debug else None),
-        title=args.title if args.title else None,
-        subtitle=args.subtitle if args.subtitle else None,
-        config_file=args.config if args.config else None
-    ))

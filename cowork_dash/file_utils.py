@@ -1,9 +1,15 @@
-"""File tree and file operations utilities."""
+"""File tree and file operations utilities.
+
+Supports both physical filesystem (Path) and virtual filesystem (VirtualFilesystem)
+for session isolation in multi-user deployments.
+"""
 
 import base64
-from pathlib import Path
-from typing import List, Dict, Tuple
+from pathlib import Path, PurePosixPath
+from typing import List, Dict, Tuple, Union, Optional
 from dash import html
+
+from .virtual_fs import VirtualFilesystem, VirtualPath
 
 
 TEXT_EXTENSIONS = {
@@ -12,6 +18,10 @@ TEXT_EXTENSIONS = {
     ".gitignore", ".dockerignore", ".cfg", ".ini", ".conf", ".log"
 }
 
+# Type alias for paths that work with both physical and virtual filesystems
+AnyPath = Union[Path, VirtualPath]
+AnyRoot = Union[Path, VirtualFilesystem]
+
 
 def is_text_file(filename: str) -> bool:
     """Check if a file can be viewed as text."""
@@ -19,25 +29,67 @@ def is_text_file(filename: str) -> bool:
     return ext in TEXT_EXTENSIONS or ext == ""
 
 
-def build_file_tree(root: Path, workspace_root: Path, lazy_load: bool = True) -> List[Dict]:
+def _get_path(root: AnyRoot, path: str = "") -> AnyPath:
+    """Get a path object from root, handling both Path and VirtualFilesystem."""
+    if isinstance(root, VirtualFilesystem):
+        return root.path(path) if path else root.root
+    else:
+        return root / path if path else root
+
+
+def _relative_path(path: AnyPath, root: AnyPath) -> str:
+    """Get relative path string."""
+    if isinstance(path, VirtualPath):
+        path_str = str(path)
+        root_str = str(root)
+        if path_str.startswith(root_str):
+            rel = path_str[len(root_str):].lstrip("/")
+            return rel or "."
+        return str(path)
+    else:
+        return str(path.relative_to(root))
+
+
+def build_file_tree(
+    root: AnyPath,
+    workspace_root: AnyRoot,
+    lazy_load: bool = True
+) -> List[Dict]:
     """
     Build file tree structure.
 
     Args:
-        root: Directory to scan
-        workspace_root: Root workspace directory for relative paths
+        root: Directory to scan (Path or VirtualPath)
+        workspace_root: Root workspace directory for relative paths (Path or VirtualFilesystem)
         lazy_load: If True, only load immediate children (subdirs not expanded)
 
     Returns:
         List of file/folder items
     """
     items = []
+
+    # Get the root path object if workspace_root is a VirtualFilesystem
+    if isinstance(workspace_root, VirtualFilesystem):
+        workspace_root_path = workspace_root.root
+    else:
+        workspace_root_path = workspace_root
+
     try:
-        entries = sorted(root.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        # Get entries from directory
+        if isinstance(root, VirtualPath):
+            entries = list(root.iterdir())
+        else:
+            entries = list(root.iterdir())
+
+        # Sort: directories first, then by name
+        entries = sorted(entries, key=lambda x: (not x.is_dir(), x.name.lower()))
+
         for entry in entries:
             if entry.name.startswith('.'):
                 continue
-            rel_path = str(entry.relative_to(workspace_root))
+
+            rel_path = _relative_path(entry, workspace_root_path)
+
             if entry.is_dir():
                 # Count immediate children to show if folder is empty
                 try:
@@ -60,23 +112,27 @@ def build_file_tree(root: Path, workspace_root: Path, lazy_load: bool = True) ->
                     "path": rel_path,
                     "viewable": is_text_file(entry.name)
                 })
-    except PermissionError:
+    except (PermissionError, FileNotFoundError):
         pass
+
     return items
 
 
-def load_folder_contents(folder_path: str, workspace_root: Path) -> List[Dict]:
+def load_folder_contents(
+    folder_path: str,
+    workspace_root: AnyRoot
+) -> List[Dict]:
     """
     Load contents of a specific folder (for lazy loading).
 
     Args:
         folder_path: Relative path to the folder from workspace root
-        workspace_root: Root workspace directory
+        workspace_root: Root workspace directory (Path or VirtualFilesystem)
 
     Returns:
         List of file/folder items in the specified folder
     """
-    full_path = workspace_root / folder_path
+    full_path = _get_path(workspace_root, folder_path)
     return build_file_tree(full_path, workspace_root, lazy_load=True)
 
 
@@ -193,9 +249,13 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
     return components
 
 
-def read_file_content(workspace_root: Path, path: str) -> Tuple[str, bool, str]:
+def read_file_content(
+    workspace_root: AnyRoot,
+    path: str
+) -> Tuple[Optional[str], bool, Optional[str]]:
     """Read file content. Returns (content, is_text, error)."""
-    full_path = workspace_root / path
+    full_path = _get_path(workspace_root, path)
+
     if not full_path.exists() or not full_path.is_file():
         return None, False, "File not found"
 
@@ -211,9 +271,13 @@ def read_file_content(workspace_root: Path, path: str) -> Tuple[str, bool, str]:
         return None, False, "Binary file - download to view"
 
 
-def get_file_download_data(workspace_root: Path, path: str) -> Tuple[str, str, str]:
+def get_file_download_data(
+    workspace_root: AnyRoot,
+    path: str
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Get file data for download. Returns (base64_content, filename, mime_type)."""
-    full_path = workspace_root / path
+    full_path = _get_path(workspace_root, path)
+
     if not full_path.exists():
         return None, None, None
 
@@ -222,7 +286,7 @@ def get_file_download_data(workspace_root: Path, path: str) -> Tuple[str, str, s
         b64 = base64.b64encode(content).decode('utf-8')
 
         # Determine MIME type
-        ext = full_path.suffix.lower()
+        ext = PurePosixPath(path).suffix.lower()
         mime_types = {
             ".txt": "text/plain", ".py": "text/x-python", ".js": "text/javascript",
             ".json": "application/json", ".html": "text/html", ".css": "text/css",
@@ -232,6 +296,71 @@ def get_file_download_data(workspace_root: Path, path: str) -> Tuple[str, str, s
         }
         mime = mime_types.get(ext, "application/octet-stream")
 
-        return b64, full_path.name, mime
+        # Get filename
+        if isinstance(full_path, VirtualPath):
+            filename = full_path.name
+        else:
+            filename = full_path.name
+
+        return b64, filename, mime
     except Exception:
         return None, None, None
+
+
+def write_file(
+    workspace_root: AnyRoot,
+    path: str,
+    content: Union[str, bytes],
+    encoding: str = "utf-8"
+) -> bool:
+    """
+    Write content to a file.
+
+    Args:
+        workspace_root: Root workspace directory (Path or VirtualFilesystem)
+        path: Relative path to the file
+        content: Content to write (str or bytes)
+        encoding: Encoding for text content
+
+    Returns:
+        True if successful, False otherwise
+    """
+    full_path = _get_path(workspace_root, path)
+
+    try:
+        if isinstance(content, str):
+            full_path.write_text(content, encoding=encoding)
+        else:
+            full_path.write_bytes(content)
+        return True
+    except Exception as e:
+        print(f"Error writing file {path}: {e}")
+        return False
+
+
+def create_directory(
+    workspace_root: AnyRoot,
+    path: str,
+    parents: bool = True,
+    exist_ok: bool = True
+) -> bool:
+    """
+    Create a directory.
+
+    Args:
+        workspace_root: Root workspace directory (Path or VirtualFilesystem)
+        path: Relative path to the directory
+        parents: Create parent directories if needed
+        exist_ok: Don't error if directory exists
+
+    Returns:
+        True if successful, False otherwise
+    """
+    full_path = _get_path(workspace_root, path)
+
+    try:
+        full_path.mkdir(parents=parents, exist_ok=exist_ok)
+        return True
+    except Exception as e:
+        print(f"Error creating directory {path}: {e}")
+        return False

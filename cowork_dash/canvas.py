@@ -1,4 +1,8 @@
-"""Canvas utilities for parsing, exporting, and loading canvas objects."""
+"""Canvas utilities for parsing, exporting, and loading canvas objects.
+
+Supports both physical filesystem (Path) and virtual filesystem (VirtualFilesystem)
+for session isolation in multi-user deployments.
+"""
 
 import io
 import json
@@ -6,8 +10,23 @@ import base64
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
+
+from .virtual_fs import VirtualFilesystem, VirtualPath
+
+
+# Type alias for paths that work with both physical and virtual filesystems
+AnyPath = Union[Path, VirtualPath]
+AnyRoot = Union[Path, VirtualFilesystem]
+
+
+def _get_path(root: AnyRoot, path: str = "") -> AnyPath:
+    """Get a path object from root, handling both Path and VirtualFilesystem."""
+    if isinstance(root, VirtualFilesystem):
+        return root.path(path) if path else root.root
+    else:
+        return root / path if path else root
 
 
 def generate_canvas_id() -> str:
@@ -17,7 +36,7 @@ def generate_canvas_id() -> str:
 
 def parse_canvas_object(
     obj: Any,
-    workspace_root: Path,
+    workspace_root: AnyRoot,
     title: Optional[str] = None,
     item_id: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -25,7 +44,7 @@ def parse_canvas_object(
 
     Args:
         obj: The Python object to parse (DataFrame, Figure, Image, str, etc.)
-        workspace_root: Path to the workspace root directory
+        workspace_root: Path to the workspace root directory (Path or VirtualFilesystem)
         title: Optional title for the canvas item
         item_id: Optional ID for the canvas item (auto-generated if not provided)
 
@@ -53,7 +72,7 @@ def parse_canvas_object(
         return result
 
     # Ensure .canvas directory exists
-    canvas_dir = workspace_root / ".canvas"
+    canvas_dir = _get_path(workspace_root, ".canvas")
     canvas_dir.mkdir(exist_ok=True)
 
     # Pandas DataFrame - keep inline
@@ -71,14 +90,18 @@ def parse_canvas_object(
         filename = f"matplotlib_{timestamp}.png"
         filepath = canvas_dir / filename
 
-        obj.savefig(filepath, format='png', bbox_inches='tight', dpi=100)
-
-        # Also store base64 for in-memory rendering
+        # Save to buffer first, then to file
         buf = io.BytesIO()
         obj.savefig(buf, format='png', bbox_inches='tight', dpi=100)
         buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        img_data = buf.read()
         buf.close()
+
+        # Write to file (virtual or physical)
+        filepath.write_bytes(img_data)
+
+        # Also store base64 for in-memory rendering
+        img_base64 = base64.b64encode(img_data).decode('utf-8')
 
         return add_metadata({
             "type": "matplotlib",
@@ -107,14 +130,18 @@ def parse_canvas_object(
         filename = f"image_{timestamp}.png"
         filepath = canvas_dir / filename
 
-        obj.save(filepath, format='PNG')
-
-        # Also store base64 for in-memory rendering
+        # Save to buffer first
         buf = io.BytesIO()
         obj.save(buf, format='PNG')
         buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        img_data = buf.read()
         buf.close()
+
+        # Write to file (virtual or physical)
+        filepath.write_bytes(img_data)
+
+        # Also store base64 for in-memory rendering
+        img_base64 = base64.b64encode(img_data).decode('utf-8')
 
         return add_metadata({
             "type": "image",
@@ -162,14 +189,29 @@ def parse_canvas_object(
         })
 
 
-def export_canvas_to_markdown(canvas_items: List[Dict], workspace_root: Path, output_path: str = None):
-    """Export canvas to markdown file with file references and metadata."""
+def export_canvas_to_markdown(
+    canvas_items: List[Dict],
+    workspace_root: AnyRoot,
+    output_path: str = None
+) -> str:
+    """Export canvas to markdown file with file references and metadata.
+
+    Args:
+        canvas_items: List of parsed canvas items
+        workspace_root: Path to the workspace root directory (Path or VirtualFilesystem)
+        output_path: Optional custom output path (relative to workspace_root/.canvas/)
+
+    Returns:
+        Path to the output file
+    """
     # Ensure .canvas directory exists
-    canvas_dir = workspace_root / ".canvas"
+    canvas_dir = _get_path(workspace_root, ".canvas")
     canvas_dir.mkdir(exist_ok=True)
 
     if not output_path:
-        output_path = canvas_dir / "canvas.md"
+        output_file = canvas_dir / "canvas.md"
+    else:
+        output_file = _get_path(workspace_root, output_path)
 
     lines = [
         "# Canvas Export",
@@ -222,23 +264,36 @@ def export_canvas_to_markdown(canvas_items: List[Dict], workspace_root: Path, ou
                 lines.append(f"\n```json\n{json.dumps(parsed.get('data'), indent=2)}\n```\n")
 
     # Write to file
-    output_file = Path(output_path)
     output_file.write_text("\n".join(lines))
     return str(output_file)
 
 
-def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -> List[Dict]:
-    """Load canvas from markdown file and referenced assets, preserving metadata."""
-    if not markdown_path:
-        markdown_path = workspace_root / ".canvas" / "canvas.md"
-    else:
-        markdown_path = Path(markdown_path)
+def load_canvas_from_markdown(
+    workspace_root: AnyRoot,
+    markdown_path: str = None
+) -> List[Dict]:
+    """Load canvas from markdown file and referenced assets, preserving metadata.
 
-    if not markdown_path.exists():
+    Args:
+        workspace_root: Path to the workspace root directory (Path or VirtualFilesystem)
+        markdown_path: Optional custom markdown file path
+
+    Returns:
+        List of parsed canvas items
+    """
+    if not markdown_path:
+        canvas_md = _get_path(workspace_root, ".canvas/canvas.md")
+    else:
+        canvas_md = _get_path(workspace_root, markdown_path)
+
+    if not canvas_md.exists():
         return []
 
-    content = markdown_path.read_text()
+    content = canvas_md.read_text()
     canvas_items = []
+
+    # Get parent directory for loading referenced files
+    canvas_dir = canvas_md.parent
 
     # First, find all metadata comments to get item boundaries and metadata
     metadata_pattern = r'<!-- canvas-item: ({.*?}) -->'
@@ -260,17 +315,21 @@ def load_canvas_from_markdown(workspace_root: Path, markdown_path: str = None) -
                 end = len(content)
 
             item_content = content[start:end].strip()
-            item = _parse_item_content(item_content, metadata, markdown_path)
+            item = _parse_item_content(item_content, metadata, canvas_dir)
             if item:
                 canvas_items.append(item)
     else:
         # Fallback: legacy parsing without metadata (backwards compatibility)
-        canvas_items = _parse_legacy_canvas(content, markdown_path)
+        canvas_items = _parse_legacy_canvas(content, canvas_dir)
 
     return canvas_items
 
 
-def _parse_item_content(content: str, metadata: Dict, markdown_path: Path) -> Optional[Dict]:
+def _parse_item_content(
+    content: str,
+    metadata: Dict,
+    canvas_dir: AnyPath
+) -> Optional[Dict]:
     """Parse a single item's content given its metadata."""
     item_type = metadata.get("type", "markdown")
     item = {
@@ -297,7 +356,7 @@ def _parse_item_content(content: str, metadata: Dict, markdown_path: Path) -> Op
         match = re.search(r'```plotly\s*\n([^\n]+)\n```', content)
         if match:
             file_ref = match.group(1).strip()
-            file_path = markdown_path.parent / file_ref
+            file_path = canvas_dir / file_ref
             if file_path.exists():
                 item["file"] = file_ref
                 item["data"] = json.loads(file_path.read_text())
@@ -308,10 +367,10 @@ def _parse_item_content(content: str, metadata: Dict, markdown_path: Path) -> Op
         if match:
             file_ref = match.group(1)
             if not file_ref.startswith('data:'):
-                file_path = markdown_path.parent / file_ref
+                file_path = canvas_dir / file_ref
                 if file_path.exists():
-                    with open(file_path, 'rb') as f:
-                        item["data"] = base64.b64encode(f.read()).decode('utf-8')
+                    img_data = file_path.read_bytes()
+                    item["data"] = base64.b64encode(img_data).decode('utf-8')
                     item["file"] = file_ref
                     item["type"] = "image"  # Normalize type
                     return item
@@ -332,7 +391,7 @@ def _parse_item_content(content: str, metadata: Dict, markdown_path: Path) -> Op
     return None
 
 
-def _parse_legacy_canvas(content: str, markdown_path: Path) -> List[Dict]:
+def _parse_legacy_canvas(content: str, canvas_dir: AnyPath) -> List[Dict]:
     """Parse canvas without metadata comments (legacy format)."""
     canvas_items = []
     code_blocks = []
@@ -399,17 +458,17 @@ def _parse_legacy_canvas(content: str, markdown_path: Path) -> List[Dict]:
             item["data"] = block['content']
             canvas_items.append(item)
         elif block['type'] == 'plotly_file':
-            file_path = markdown_path.parent / block['content']
+            file_path = canvas_dir / block['content']
             if file_path.exists():
                 item["type"] = "plotly"
                 item["file"] = block['content']
                 item["data"] = json.loads(file_path.read_text())
                 canvas_items.append(item)
         elif block['type'] == 'image_file':
-            file_path = markdown_path.parent / block['content']
+            file_path = canvas_dir / block['content']
             if file_path.exists():
-                with open(file_path, 'rb') as f:
-                    item["data"] = base64.b64encode(f.read()).decode('utf-8')
+                img_data = file_path.read_bytes()
+                item["data"] = base64.b64encode(img_data).decode('utf-8')
                 item["type"] = "image"
                 item["file"] = block['content']
                 canvas_items.append(item)

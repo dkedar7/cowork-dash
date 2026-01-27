@@ -3,10 +3,52 @@ import sys
 import io
 import traceback
 import subprocess
+import threading
 from contextlib import redirect_stdout, redirect_stderr
 
-from .config import WORKSPACE_ROOT
+from .config import WORKSPACE_ROOT, VIRTUAL_FS
 from .canvas import parse_canvas_object, generate_canvas_id
+
+
+# Thread-local storage for current session context
+# This allows tools to know which session they're operating in
+_tool_context = threading.local()
+
+
+def set_tool_session_context(session_id: Optional[str]) -> None:
+    """Set the current session context for tool operations.
+
+    This should be called before invoking agent tools in virtual FS mode.
+    """
+    _tool_context.session_id = session_id
+
+
+def get_tool_session_context() -> Optional[str]:
+    """Get the current session context for tool operations."""
+    return getattr(_tool_context, 'session_id', None)
+
+
+def clear_tool_session_context() -> None:
+    """Clear the current session context."""
+    _tool_context.session_id = None
+
+
+def _get_workspace_root_for_context() -> Any:
+    """Get the appropriate workspace root based on current context.
+
+    Returns VirtualFilesystem in virtual FS mode with session context,
+    otherwise returns the physical WORKSPACE_ROOT path.
+    """
+    # Import config dynamically to get current value (in case it changed)
+    from . import config as cfg
+    if cfg.VIRTUAL_FS:
+        session_id = get_tool_session_context()
+        if session_id:
+            from .virtual_fs import get_session_manager
+            fs = get_session_manager().get_filesystem(session_id)
+            if fs is not None:
+                return fs
+    return cfg.WORKSPACE_ROOT
 
 
 # =============================================================================
@@ -22,20 +64,58 @@ class NotebookState:
     - A persistent namespace for variable state across cells
     - Execution history and outputs
     - Canvas items generated during cell execution
+
+    In virtual filesystem mode, file operations are restricted and virtual
+    filesystem helpers are provided instead.
     """
 
-    def __init__(self):
+    def __init__(self, session_id: Optional[str] = None):
         self._cells: List[Dict[str, Any]] = []
         self._namespace: Dict[str, Any] = {}
         self._execution_count: int = 0
         self._ipython_shell = None
         self._canvas_items: List[Dict[str, Any]] = []  # Collected canvas items
+        self._session_id = session_id
         self._initialize_namespace()
 
     def _initialize_namespace(self):
         """Initialize the namespace with common imports and utilities."""
         # Pre-populate with commonly used modules
-        init_code = """
+        # In virtual FS mode, we provide virtual filesystem helpers
+        if VIRTUAL_FS:
+            init_code = """
+import sys
+import json
+
+# Data science essentials (imported if available)
+try:
+    import pandas as pd
+except ImportError:
+    pass
+
+try:
+    import numpy as np
+except ImportError:
+    pass
+
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend
+    import matplotlib.pyplot as plt
+except ImportError:
+    pass
+
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+except ImportError:
+    pass
+
+# Note: In virtual filesystem mode, standard file operations (open, os.listdir, etc.)
+# are not available. Use the provided vfs_* functions instead.
+"""
+        else:
+            init_code = """
 import sys
 import os
 import json
@@ -71,6 +151,10 @@ except ImportError:
         except Exception:
             pass  # Ignore import errors for optional packages
 
+        # In virtual FS mode, inject virtual filesystem helpers
+        if VIRTUAL_FS:
+            self._inject_virtual_fs_helpers()
+
         # Inject add_to_canvas function that captures items
         def _add_to_canvas_wrapper(content: Any) -> Dict[str, Any]:
             """Add content to the canvas for visualization.
@@ -79,7 +163,16 @@ except ImportError:
             PIL images, and markdown strings.
             """
             try:
-                parsed = parse_canvas_object(content, workspace_root=WORKSPACE_ROOT)
+                # Use session's VirtualFilesystem in virtual FS mode, otherwise physical path
+                if VIRTUAL_FS and self._session_id:
+                    from .virtual_fs import get_session_manager
+                    workspace_root = get_session_manager().get_filesystem(self._session_id)
+                    if workspace_root is None:
+                        raise RuntimeError(f"Session {self._session_id} not found")
+                else:
+                    workspace_root = WORKSPACE_ROOT
+
+                parsed = parse_canvas_object(content, workspace_root=workspace_root)
                 self._canvas_items.append(parsed)
                 return parsed
             except Exception as e:
@@ -92,6 +185,67 @@ except ImportError:
                 return error_result
 
         self._namespace["add_to_canvas"] = _add_to_canvas_wrapper
+
+    def _inject_virtual_fs_helpers(self):
+        """Inject virtual filesystem helper functions into the namespace."""
+        from .virtual_fs import get_session_manager
+
+        session_id = self._session_id
+
+        def vfs_read_file(path: str) -> str:
+            """Read a text file from the virtual filesystem."""
+            if not session_id:
+                raise RuntimeError("No session ID available for virtual filesystem")
+            fs = get_session_manager().get_filesystem(session_id)
+            if not fs:
+                raise RuntimeError(f"Session {session_id} not found")
+            return fs.read_text(path)
+
+        def vfs_write_file(path: str, content: str) -> int:
+            """Write content to a file in the virtual filesystem."""
+            if not session_id:
+                raise RuntimeError("No session ID available for virtual filesystem")
+            fs = get_session_manager().get_filesystem(session_id)
+            if not fs:
+                raise RuntimeError(f"Session {session_id} not found")
+            return fs.write_text(path, content)
+
+        def vfs_list_dir(path: str = "/workspace") -> list:
+            """List files in a directory in the virtual filesystem."""
+            if not session_id:
+                raise RuntimeError("No session ID available for virtual filesystem")
+            fs = get_session_manager().get_filesystem(session_id)
+            if not fs:
+                raise RuntimeError(f"Session {session_id} not found")
+            return fs.listdir(path)
+
+        def vfs_exists(path: str) -> bool:
+            """Check if a file or directory exists in the virtual filesystem."""
+            if not session_id:
+                raise RuntimeError("No session ID available for virtual filesystem")
+            fs = get_session_manager().get_filesystem(session_id)
+            if not fs:
+                raise RuntimeError(f"Session {session_id} not found")
+            return fs.exists(path)
+
+        def vfs_mkdir(path: str, parents: bool = True) -> None:
+            """Create a directory in the virtual filesystem."""
+            if not session_id:
+                raise RuntimeError("No session ID available for virtual filesystem")
+            fs = get_session_manager().get_filesystem(session_id)
+            if not fs:
+                raise RuntimeError(f"Session {session_id} not found")
+            fs.mkdir(path, parents=parents, exist_ok=True)
+
+        # Inject the helpers
+        self._namespace["vfs_read_file"] = vfs_read_file
+        self._namespace["vfs_write_file"] = vfs_write_file
+        self._namespace["vfs_list_dir"] = vfs_list_dir
+        self._namespace["vfs_exists"] = vfs_exists
+        self._namespace["vfs_mkdir"] = vfs_mkdir
+
+        # Add a notice about virtual FS mode
+        self._namespace["__VFS_MODE__"] = True
 
     def _get_ipython(self):
         """Get or create an IPython InteractiveShell for enhanced execution."""
@@ -339,8 +493,25 @@ except ImportError:
         return {"status": "reset", "message": "Notebook state cleared"}
 
 
-# Global notebook state instance
+# Global notebook state instance (for physical FS mode)
+# In virtual FS mode, each session should have its own NotebookState
 _notebook_state = NotebookState()
+_session_notebook_states: Dict[str, NotebookState] = {}
+
+
+def get_notebook_state(session_id: Optional[str] = None) -> NotebookState:
+    """Get the notebook state for a session.
+
+    In virtual FS mode, returns a session-specific NotebookState.
+    In physical FS mode, returns the global shared NotebookState.
+    """
+    if not VIRTUAL_FS or not session_id:
+        return _notebook_state
+
+    if session_id not in _session_notebook_states:
+        _session_notebook_states[session_id] = NotebookState(session_id=session_id)
+
+    return _session_notebook_states[session_id]
 
 
 def create_cell(code: str, cell_type: str = "code") -> Dict[str, Any]:
@@ -625,10 +796,13 @@ def add_to_canvas(content: Any, title: Optional[str] = None, item_id: Optional[s
         add_to_canvas(new_fig, item_id="growth_chart")  # Replaces the previous chart
     """
     try:
+        # Get appropriate workspace root (VirtualFilesystem in virtual FS mode)
+        workspace_root = _get_workspace_root_for_context()
+
         # Parse the content into canvas format with optional title and ID
         parsed = parse_canvas_object(
             content,
-            workspace_root=WORKSPACE_ROOT,
+            workspace_root=workspace_root,
             title=title,
             item_id=item_id
         )
@@ -668,9 +842,12 @@ def update_canvas_item(item_id: str, content: Any, title: Optional[str] = None) 
         update_canvas_item("progress_chart", final_fig, title="Final Results")
     """
     try:
+        # Get appropriate workspace root (VirtualFilesystem in virtual FS mode)
+        workspace_root = _get_workspace_root_for_context()
+
         parsed = parse_canvas_object(
             content,
-            workspace_root=WORKSPACE_ROOT,
+            workspace_root=workspace_root,
             title=title,
             item_id=item_id
         )
@@ -719,6 +896,8 @@ def bash(command: str, timeout: int = 60) -> Dict[str, Any]:
     Runs the command in the workspace directory. Use this for file operations,
     git commands, installing packages, or any shell operations.
 
+    Note: This tool is disabled in virtual filesystem mode for security reasons.
+
     Args:
         command: The bash command to execute
         timeout: Maximum time in seconds to wait for the command (default: 60)
@@ -743,6 +922,16 @@ def bash(command: str, timeout: int = 60) -> Dict[str, Any]:
         # Run a script
         bash("python script.py")
     """
+    # Disable bash in virtual filesystem mode for security
+    if VIRTUAL_FS:
+        return {
+            "stdout": "",
+            "stderr": "Bash commands are disabled in virtual filesystem mode for security reasons. "
+                      "Use the built-in file tools (read_file, write_file, list_directory) instead.",
+            "return_code": 1,
+            "status": "error"
+        }
+
     try:
         result = subprocess.run(
             command,

@@ -335,7 +335,6 @@ def format_interrupt(interrupt_data: Dict, colors: Dict):
     # Show action requests if any
     if action_requests:
         for i, action in enumerate(action_requests):
-            action_type = action.get("type", "unknown")
             action_tool = action.get("tool", "")
             action_args = action.get("args", {})
 
