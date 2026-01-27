@@ -1,23 +1,23 @@
 import os
-import uuid
+
 from deepagents import create_deep_agent
-from langgraph.checkpoint.memory import InMemorySaver
 from deepagents.backends import FilesystemBackend
+from langgraph.checkpoint.memory import InMemorySaver
 
 from cowork_dash.tools import (
     add_to_canvas,
+    bash,
+    clear_notebook_canvas_items,
     create_cell,
-    insert_cell,
-    modify_cell,
     delete_cell,
-    execute_cell,
     execute_all_cells,
+    execute_cell,
+    get_notebook_canvas_items,
     get_script,
     get_variables,
+    insert_cell,
+    modify_cell,
     reset_notebook,
-    get_notebook_canvas_items,
-    clear_notebook_canvas_items,
-    bash,
 )
 
 SYSTEM_PROMPT = """You are a helpful AI assistant with access to a filesystem workspace and a Python code execution environment.
@@ -97,25 +97,66 @@ The workspace is your sandbox - feel free to create files, organize content, and
 workspace_root = os.getenv("DEEPAGENT_WORKSPACE_ROOT", os.getcwd())
 backend = FilesystemBackend(root_dir=workspace_root, virtual_mode=True)
 
+# Default tools list used by both global and session agents
+AGENT_TOOLS = [
+    add_to_canvas,
+    bash,
+    create_cell,
+    insert_cell,
+    modify_cell,
+    delete_cell,
+    execute_cell,
+    execute_all_cells,
+    get_script,
+    get_variables,
+    reset_notebook,
+    get_notebook_canvas_items,
+    clear_notebook_canvas_items,
+]
+
+# Global agent for physical filesystem mode
+# This uses FilesystemBackend which writes to disk
 agent = create_deep_agent(
     system_prompt=SYSTEM_PROMPT,
     name="Cowork Dash",
     backend=backend,
-    tools=[
-        add_to_canvas,
-        bash,
-        create_cell,
-        insert_cell,
-        modify_cell,
-        delete_cell,
-        execute_cell,
-        execute_all_cells,
-        get_script,
-        get_variables,
-        reset_notebook,
-        get_notebook_canvas_items,
-        clear_notebook_canvas_items,
-    ],
+    tools=AGENT_TOOLS,
     interrupt_on=dict(bash=True),
     checkpointer=InMemorySaver()
 )
+
+
+def create_session_agent(session_id: str):
+    """Create an agent with session-specific VirtualFilesystem backend.
+
+    This factory function creates an agent that uses the VirtualFilesystem
+    for the given session, enabling isolated file storage between sessions.
+
+    Args:
+        session_id: The session ID to use for VirtualFilesystem lookup.
+
+    Returns:
+        A configured deep agent that uses VirtualFilesystemBackend.
+    """
+    from .backends import VirtualFilesystemBackend
+    from .virtual_fs import get_session_manager
+
+    # Get the VirtualFilesystem for this session
+    fs = get_session_manager().get_filesystem(session_id)
+    if fs is None:
+        # Session doesn't exist, create it
+        get_session_manager().create_session(session_id)
+        fs = get_session_manager().get_filesystem(session_id)
+
+    # Create backend wrapping the VirtualFilesystem
+    session_backend = VirtualFilesystemBackend(fs)
+
+    # Create and return the agent
+    return create_deep_agent(
+        system_prompt=SYSTEM_PROMPT,
+        name="Cowork Dash",
+        backend=session_backend,
+        tools=AGENT_TOOLS,
+        interrupt_on=dict(bash=True),
+        checkpointer=InMemorySaver()
+    )
