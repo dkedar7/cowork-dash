@@ -90,26 +90,27 @@ import json
 # Data science essentials (imported if available)
 try:
     import pandas as pd
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    pd = None
 
 try:
     import numpy as np
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    np = None
 
 try:
     import matplotlib
     matplotlib.use('Agg')  # Non-interactive backend
     import matplotlib.pyplot as plt
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    plt = None
 
 try:
     import plotly.express as px
     import plotly.graph_objects as go
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    px = None
+    go = None
 
 # Note: In virtual filesystem mode, standard file operations (open, os.listdir, etc.)
 # are not available. Use the provided vfs_* functions instead.
@@ -124,26 +125,27 @@ from pathlib import Path
 # Data science essentials (imported if available)
 try:
     import pandas as pd
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    pd = None
 
 try:
     import numpy as np
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    np = None
 
 try:
     import matplotlib
     matplotlib.use('Agg')  # Non-interactive backend
     import matplotlib.pyplot as plt
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    plt = None
 
 try:
     import plotly.express as px
     import plotly.graph_objects as go
-except ImportError:
-    pass
+except (ImportError, AttributeError):
+    px = None
+    go = None
 """
         # Execute initialization silently
         try:
