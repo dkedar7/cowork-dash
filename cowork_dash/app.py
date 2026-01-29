@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 load_dotenv()
 
-from dash import Dash, html, Input, Output, State, callback_context, no_update, ALL
+from dash import Dash, html, dcc, Input, Output, State, callback_context, no_update, ALL
 from dash.exceptions import PreventUpdate
 import dash_mantine_components as dmc
 from dash_iconify import DashIconify
@@ -1805,23 +1805,207 @@ def open_file_modal(all_n_clicks, all_ids, click_tracker, theme, session_id):
     colors = get_colors(theme or "light")
     content, is_text, error = read_file_content(workspace_root, file_path)
     filename = Path(file_path).name
+    file_ext = Path(file_path).suffix.lower()
 
-    if is_text and content:
-        modal_content = html.Pre(
-            content,
-            style={
-                "background": colors["bg_tertiary"],
-                "padding": "16px",
-                "fontSize": "12px",
-                "fontFamily": "'IBM Plex Mono', monospace",
-                "overflow": "auto",
-                "maxHeight": "60vh",
-                "whiteSpace": "pre-wrap",
-                "wordBreak": "break-word",
-                "margin": "0",
-                "color": colors["text_primary"],
-            }
-        )
+    # Define file type categories for binary previews
+    image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'}
+    pdf_exts = {'.pdf'}
+
+    # Check for binary preview types first
+    if file_ext in image_exts | pdf_exts:
+        b64, _, mime = get_file_download_data(workspace_root, file_path)
+        if b64:
+            data_url = f"data:{mime};base64,{b64}"
+
+            if file_ext in image_exts:
+                # Image preview
+                modal_content = html.Div([
+                    html.Img(
+                        src=data_url,
+                        style={
+                            "maxWidth": "100%",
+                            "maxHeight": "80vh",
+                            "display": "block",
+                            "margin": "0 auto",
+                            "borderRadius": "4px",
+                        }
+                    )
+                ], style={"textAlign": "center"})
+
+            elif file_ext in pdf_exts:
+                # PDF preview via embed
+                modal_content = html.Embed(
+                    src=data_url,
+                    type="application/pdf",
+                    style={
+                        "width": "100%",
+                        "height": "80vh",
+                        "borderRadius": "4px",
+                    }
+                )
+        else:
+            # Failed to read binary file
+            modal_content = html.Div([
+                html.P("Failed to load file preview", style={
+                    "color": colors["text_muted"],
+                    "textAlign": "center",
+                    "padding": "40px",
+                }),
+                html.P("Click Download to save the file.", style={
+                    "color": colors["text_muted"],
+                    "textAlign": "center",
+                    "fontSize": "13px",
+                })
+            ])
+
+    elif is_text and content:
+        # HTML files get rendered preview
+        if file_ext in ('.html', '.htm'):
+            modal_content = html.Div([
+                # Tab buttons for switching views
+                html.Div([
+                    html.Button("Preview", id="html-preview-tab", n_clicks=0,
+                        className="html-tab-btn html-tab-active",
+                        style={"marginRight": "8px", "padding": "6px 12px", "border": "none",
+                               "borderRadius": "4px", "cursor": "pointer",
+                               "background": colors["accent"], "color": "#fff"}),
+                    html.Button("Source", id="html-source-tab", n_clicks=0,
+                        className="html-tab-btn",
+                        style={"padding": "6px 12px", "border": f"1px solid {colors['border']}",
+                               "borderRadius": "4px", "cursor": "pointer",
+                               "background": "transparent", "color": colors["text_primary"]}),
+                ], style={"marginBottom": "12px", "display": "flex"}),
+                # Preview iframe (default visible)
+                html.Iframe(
+                    srcDoc=content,
+                    style={
+                        "width": "100%",
+                        "height": "80vh",
+                        "border": f"1px solid {colors['border']}",
+                        "borderRadius": "4px",
+                        "background": "#fff",
+                    },
+                    id="html-preview-frame"
+                ),
+                # Source code (hidden by default)
+                html.Pre(
+                    content,
+                    id="html-source-code",
+                    style={
+                        "display": "none",
+                        "background": colors["bg_tertiary"],
+                        "padding": "16px",
+                        "fontSize": "12px",
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "overflow": "auto",
+                        "maxHeight": "80vh",
+                        "whiteSpace": "pre-wrap",
+                        "wordBreak": "break-word",
+                        "margin": "0",
+                        "color": colors["text_primary"],
+                        "border": f"1px solid {colors['border']}",
+                        "borderRadius": "4px",
+                    }
+                )
+            ])
+        elif file_ext == '.json':
+            # Try to parse as Plotly JSON figure
+            plotly_figure = None
+            try:
+                data = json.loads(content)
+                # Check if it looks like a Plotly figure (has 'data' key with list)
+                if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
+                    plotly_figure = data
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+            if plotly_figure:
+                # Render as interactive Plotly chart with source toggle
+                modal_content = html.Div([
+                    # Tab buttons for switching views
+                    html.Div([
+                        html.Button("Chart", id="html-preview-tab", n_clicks=0,
+                            className="html-tab-btn html-tab-active",
+                            style={"marginRight": "8px", "padding": "6px 12px", "border": "none",
+                                   "borderRadius": "4px", "cursor": "pointer",
+                                   "background": colors["accent"], "color": "#fff"}),
+                        html.Button("JSON", id="html-source-tab", n_clicks=0,
+                            className="html-tab-btn",
+                            style={"padding": "6px 12px", "border": f"1px solid {colors['border']}",
+                                   "borderRadius": "4px", "cursor": "pointer",
+                                   "background": "transparent", "color": colors["text_primary"]}),
+                    ], style={"marginBottom": "12px", "display": "flex"}),
+                    # Plotly chart (default visible)
+                    html.Div([
+                        dcc.Graph(
+                            figure=plotly_figure,
+                            style={"height": "75vh"},
+                            config={"displayModeBar": True, "responsive": True}
+                        )
+                    ], id="html-preview-frame", style={
+                        "border": f"1px solid {colors['border']}",
+                        "borderRadius": "4px",
+                        "background": "#fff",
+                    }),
+                    # JSON source (hidden by default)
+                    html.Pre(
+                        json.dumps(plotly_figure, indent=2),
+                        id="html-source-code",
+                        style={
+                            "display": "none",
+                            "background": colors["bg_tertiary"],
+                            "padding": "16px",
+                            "fontSize": "12px",
+                            "fontFamily": "'IBM Plex Mono', monospace",
+                            "overflow": "auto",
+                            "maxHeight": "80vh",
+                            "whiteSpace": "pre-wrap",
+                            "wordBreak": "break-word",
+                            "margin": "0",
+                            "color": colors["text_primary"],
+                            "border": f"1px solid {colors['border']}",
+                            "borderRadius": "4px",
+                        }
+                    )
+                ])
+            else:
+                # Regular JSON - show formatted
+                try:
+                    formatted = json.dumps(json.loads(content), indent=2)
+                except json.JSONDecodeError:
+                    formatted = content
+                modal_content = html.Pre(
+                    formatted,
+                    style={
+                        "background": colors["bg_tertiary"],
+                        "padding": "16px",
+                        "fontSize": "12px",
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "overflow": "auto",
+                        "maxHeight": "80vh",
+                        "whiteSpace": "pre-wrap",
+                        "wordBreak": "break-word",
+                        "margin": "0",
+                        "color": colors["text_primary"],
+                    }
+                )
+        else:
+            # Regular text files
+            modal_content = html.Pre(
+                content,
+                style={
+                    "background": colors["bg_tertiary"],
+                    "padding": "16px",
+                    "fontSize": "12px",
+                    "fontFamily": "'IBM Plex Mono', monospace",
+                    "overflow": "auto",
+                    "maxHeight": "80vh",
+                    "whiteSpace": "pre-wrap",
+                    "wordBreak": "break-word",
+                    "margin": "0",
+                    "color": colors["text_primary"],
+                }
+            )
     else:
         modal_content = html.Div([
             html.P(error or "Cannot display file", style={
@@ -1868,6 +2052,71 @@ def download_from_modal(n_clicks, file_path, session_id):
         raise PreventUpdate
 
     return dict(content=b64, filename=filename, base64=True, type=mime)
+
+
+# HTML preview/source tab switching
+@app.callback(
+    [Output("html-preview-frame", "style"),
+     Output("html-source-code", "style"),
+     Output("html-preview-tab", "style"),
+     Output("html-source-tab", "style")],
+    [Input("html-preview-tab", "n_clicks"),
+     Input("html-source-tab", "n_clicks")],
+    [State("theme-store", "data")],
+    prevent_initial_call=True
+)
+def toggle_html_view(preview_clicks, source_clicks, theme):
+    """Toggle between HTML preview and source code view."""
+    ctx = callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+
+    colors = get_colors(theme or "light")
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    # Base styles
+    preview_frame_style = {
+        "width": "100%",
+        "height": "80vh",
+        "border": f"1px solid {colors['border']}",
+        "borderRadius": "4px",
+        "background": "#fff",
+    }
+    source_code_style = {
+        "background": colors["bg_tertiary"],
+        "padding": "16px",
+        "fontSize": "12px",
+        "fontFamily": "'IBM Plex Mono', monospace",
+        "overflow": "auto",
+        "maxHeight": "80vh",
+        "whiteSpace": "pre-wrap",
+        "wordBreak": "break-word",
+        "margin": "0",
+        "color": colors["text_primary"],
+        "border": f"1px solid {colors['border']}",
+        "borderRadius": "4px",
+    }
+    active_btn_style = {
+        "marginRight": "8px", "padding": "6px 12px", "border": "none",
+        "borderRadius": "4px", "cursor": "pointer",
+        "background": colors["accent"], "color": "#fff"
+    }
+    inactive_btn_style = {
+        "padding": "6px 12px", "border": f"1px solid {colors['border']}",
+        "borderRadius": "4px", "cursor": "pointer",
+        "background": "transparent", "color": colors["text_primary"]
+    }
+
+    if triggered_id == "html-source-tab":
+        # Show source, hide preview
+        preview_frame_style["display"] = "none"
+        source_code_style["display"] = "block"
+        return preview_frame_style, source_code_style, {**inactive_btn_style, "marginRight": "8px"}, active_btn_style
+    else:
+        # Show preview, hide source (default)
+        preview_frame_style["display"] = "block"
+        source_code_style["display"] = "none"
+        return preview_frame_style, source_code_style, active_btn_style, {**inactive_btn_style}
 
 
 # Open terminal
