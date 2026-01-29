@@ -652,6 +652,94 @@ details summary:hover {
 }
 
 /* ============================================
+   Display Inline - Rich Content Display
+   ============================================ */
+
+.display-inline-container {
+    background: var(--mantine-color-gray-0);
+    border: 1px solid var(--mantine-color-gray-2);
+    border-radius: 8px;
+    margin-top: 8px;
+}
+
+.display-inline-title {
+    color: var(--mantine-color-text);
+    border-bottom: 1px solid var(--mantine-color-gray-2);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+}
+
+.display-inline-error {
+    color: #e53e3e;
+}
+
+.display-inline-image {
+    display: block;
+    margin: 0 auto;
+}
+
+.display-inline-dataframe table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.display-inline-dataframe th,
+.display-inline-dataframe td {
+    padding: 6px 10px;
+    border: 1px solid var(--mantine-color-gray-3);
+    text-align: left;
+}
+
+.display-inline-dataframe th {
+    background: var(--mantine-color-gray-1);
+    font-weight: 600;
+}
+
+.display-inline-df-summary {
+    color: var(--mantine-color-dimmed);
+}
+
+.display-inline-json,
+.display-inline-text {
+    background: var(--mantine-color-gray-1);
+    border: 1px solid var(--mantine-color-gray-2);
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.display-inline-filename {
+    color: var(--mantine-color-dimmed);
+}
+
+.display-inline-html iframe {
+    background: white;
+}
+
+[data-mantine-color-scheme="dark"] .display-inline-container {
+    background: var(--mantine-color-dark-6);
+    border-color: var(--mantine-color-dark-4);
+}
+
+[data-mantine-color-scheme="dark"] .display-inline-title {
+    border-color: var(--mantine-color-dark-4);
+}
+
+[data-mantine-color-scheme="dark"] .display-inline-dataframe th,
+[data-mantine-color-scheme="dark"] .display-inline-dataframe td {
+    border-color: var(--mantine-color-dark-4);
+}
+
+[data-mantine-color-scheme="dark"] .display-inline-dataframe th {
+    background: var(--mantine-color-dark-5);
+}
+
+[data-mantine-color-scheme="dark"] .display-inline-json,
+[data-mantine-color-scheme="dark"] .display-inline-text {
+    background: var(--mantine-color-dark-5);
+    border-color: var(--mantine-color-dark-4);
+}
+
+/* ============================================
    File Tree Styling - Compact Theme Aware
    ============================================ */
 

@@ -942,6 +942,408 @@ def remove_canvas_item(item_id: str) -> Dict[str, Any]:
 
 
 # =============================================================================
+# DISPLAY INLINE TOOL
+# =============================================================================
+
+def display_inline(
+    content: Any,
+    title: Optional[str] = None,
+    display_type: Optional[str] = None
+) -> Dict[str, Any]:
+    """Display content to the user in a rich, interactive format inline in the chat.
+
+    This tool renders content directly in the conversation for immediate visibility.
+    Use this when you want the user to see results right away without navigating to
+    the canvas. Supports images, HTML, Plotly charts, CSV/DataFrames, and more.
+
+    Args:
+        content: The content to display. Can be:
+            - str: File path (image, HTML, CSV, JSON) or raw content
+            - bytes: Binary image data (PNG, JPEG, etc.)
+            - pd.DataFrame: Rendered as an interactive table
+            - dict: If it looks like Plotly JSON, rendered as a chart
+            - matplotlib.figure.Figure: Rendered as an image
+            - plotly.graph_objects.Figure: Rendered as an interactive chart
+        title: Optional title displayed above the content
+        display_type: Optional hint for how to render the content. One of:
+            - "image": Force image rendering (PNG, JPEG, GIF, etc.)
+            - "html": Force HTML rendering with preview
+            - "plotly": Force Plotly chart rendering
+            - "csv" or "dataframe": Force table rendering
+            - "json": Force JSON rendering
+            - "text": Force plain text rendering
+            Auto-detected if not provided.
+
+    Returns:
+        Dictionary with display metadata:
+        - type: "display_inline" (identifies this as inline display)
+        - display_type: The detected/specified display type
+        - title: The title (if provided)
+        - data: The processed data for rendering
+        - status: "success" or "error"
+
+    Examples:
+        # Show an image file
+        display_inline("analysis_results.png", title="Results Chart")
+
+        # Show a DataFrame
+        import pandas as pd
+        df = pd.read_csv("data.csv")
+        display_inline(df, title="Sales Data")
+
+        # Show a Plotly figure
+        import plotly.express as px
+        fig = px.bar(df, x="category", y="value")
+        display_inline(fig, title="Category Distribution")
+
+        # Show HTML content
+        display_inline("<h1>Hello</h1><p>World</p>", display_type="html")
+
+        # Show CSV file
+        display_inline("report.csv", title="Monthly Report")
+    """
+    import base64
+    import io
+    import json
+    from pathlib import PurePath
+
+    result = {
+        "type": "display_inline",
+        "display_type": None,
+        "title": title,
+        "data": None,
+        "preview": None,  # For thumbnails
+        "downloadable": False,
+        "status": "success",
+        "error": None
+    }
+
+    try:
+        # Get workspace root for file operations
+        workspace_root = _get_workspace_root_for_context()
+
+        # Detect content type and process accordingly
+        obj_type = type(content).__name__
+        obj_module = type(content).__module__
+
+        # Handle file paths (strings that look like file paths)
+        if isinstance(content, str) and not display_type:
+            # Check if it's a file path
+            if _is_file_path(content, workspace_root):
+                return _process_file_for_display(content, workspace_root, title, display_type)
+            # Otherwise, check for explicit display types or treat as text/HTML
+            if content.strip().startswith("<") and ">" in content:
+                result["display_type"] = "html"
+                result["data"] = content
+                result["preview"] = content[:500] + "..." if len(content) > 500 else content
+                return result
+
+        # Handle explicit display_type for strings
+        if isinstance(content, str) and display_type:
+            if display_type == "html":
+                result["display_type"] = "html"
+                result["data"] = content
+                result["preview"] = content[:500] + "..." if len(content) > 500 else content
+                return result
+            elif display_type == "text":
+                result["display_type"] = "text"
+                result["data"] = content
+                return result
+            elif display_type in ("csv", "dataframe"):
+                # Parse CSV string
+                try:
+                    import pandas as pd
+                    df = pd.read_csv(io.StringIO(content))
+                    return _process_dataframe_for_display(df, title)
+                except Exception as e:
+                    result["display_type"] = "text"
+                    result["data"] = content
+                    result["error"] = f"Could not parse as CSV: {e}"
+                    return result
+            elif display_type == "json":
+                result["display_type"] = "json"
+                try:
+                    result["data"] = json.loads(content) if isinstance(content, str) else content
+                except json.JSONDecodeError:
+                    result["data"] = content
+                return result
+            elif display_type == "image":
+                # Assume it's base64 or file path
+                if _is_file_path(content, workspace_root):
+                    return _process_file_for_display(content, workspace_root, title, "image")
+                result["display_type"] = "image"
+                result["data"] = content  # Assume base64
+                return result
+            elif display_type == "plotly":
+                result["display_type"] = "plotly"
+                if isinstance(content, str):
+                    result["data"] = json.loads(content)
+                else:
+                    result["data"] = content
+                return result
+
+        # Handle bytes (binary data - likely image)
+        if isinstance(content, bytes):
+            result["display_type"] = "image"
+            result["data"] = base64.b64encode(content).decode('utf-8')
+            return result
+
+        # Handle pandas DataFrame
+        if obj_module.startswith('pandas') and obj_type == 'DataFrame':
+            return _process_dataframe_for_display(content, title)
+
+        # Handle matplotlib Figure
+        if obj_module.startswith('matplotlib') and 'Figure' in obj_type:
+            buf = io.BytesIO()
+            content.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+            buf.seek(0)
+            img_data = buf.read()
+            buf.close()
+
+            result["display_type"] = "image"
+            result["data"] = base64.b64encode(img_data).decode('utf-8')
+            result["mime_type"] = "image/png"
+            return result
+
+        # Handle Plotly Figure
+        if obj_module.startswith('plotly') and 'Figure' in obj_type:
+            result["display_type"] = "plotly"
+            result["data"] = json.loads(content.to_json())
+            return result
+
+        # Handle dict (check for Plotly JSON structure)
+        if isinstance(content, dict):
+            if 'data' in content and isinstance(content.get('data'), list):
+                result["display_type"] = "plotly"
+                result["data"] = content
+                return result
+            else:
+                result["display_type"] = "json"
+                result["data"] = content
+                return result
+
+        # Handle PIL Image
+        if obj_module.startswith('PIL') and 'Image' in obj_type:
+            buf = io.BytesIO()
+            content.save(buf, format='PNG')
+            buf.seek(0)
+            img_data = buf.read()
+            buf.close()
+
+            result["display_type"] = "image"
+            result["data"] = base64.b64encode(img_data).decode('utf-8')
+            result["mime_type"] = "image/png"
+            return result
+
+        # Handle list (could be data for table)
+        if isinstance(content, list) and len(content) > 0:
+            if isinstance(content[0], dict):
+                # List of dicts - render as table
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(content)
+                    return _process_dataframe_for_display(df, title)
+                except Exception:
+                    result["display_type"] = "json"
+                    result["data"] = content
+                    return result
+            else:
+                result["display_type"] = "json"
+                result["data"] = content
+                return result
+
+        # Default: convert to string
+        result["display_type"] = "text"
+        result["data"] = str(content)
+        return result
+
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+        result["display_type"] = "error"
+        result["data"] = f"Error processing content: {e}"
+        return result
+
+
+def _is_file_path(content: str, workspace_root: Any) -> bool:
+    """Check if a string looks like a file path that exists."""
+    if not content or len(content) > 500:  # Too long to be a path
+        return False
+    if "\n" in content:  # Contains newlines - not a path
+        return False
+
+    # Check for common file extensions
+    from pathlib import PurePath
+    ext = PurePath(content).suffix.lower()
+    known_extensions = {
+        '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico',
+        '.html', '.htm',
+        '.csv', '.tsv',
+        '.json',
+        '.pdf'
+    }
+
+    if ext in known_extensions:
+        # Try to check if file exists
+        from .file_utils import _get_path
+        try:
+            full_path = _get_path(workspace_root, content)
+            return full_path.exists()
+        except Exception:
+            return False
+
+    return False
+
+
+def _process_file_for_display(
+    file_path: str,
+    workspace_root: Any,
+    title: Optional[str],
+    display_type: Optional[str]
+) -> Dict[str, Any]:
+    """Process a file path and return display data."""
+    import base64
+    import json
+    from pathlib import PurePath
+    from .file_utils import _get_path, read_file_content, get_file_download_data
+
+    result = {
+        "type": "display_inline",
+        "display_type": None,
+        "title": title,
+        "data": None,
+        "preview": None,
+        "filename": PurePath(file_path).name,
+        "file_path": file_path,
+        "downloadable": True,
+        "status": "success",
+        "error": None
+    }
+
+    ext = PurePath(file_path).suffix.lower()
+    full_path = _get_path(workspace_root, file_path)
+
+    if not full_path.exists():
+        result["status"] = "error"
+        result["error"] = f"File not found: {file_path}"
+        return result
+
+    # Image files
+    image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'}
+    if ext in image_exts or display_type == "image":
+        b64, filename, mime = get_file_download_data(workspace_root, file_path)
+        if b64:
+            result["display_type"] = "image"
+            result["data"] = b64
+            result["mime_type"] = mime
+            return result
+
+    # HTML files
+    if ext in {'.html', '.htm'} or display_type == "html":
+        content, is_text, error = read_file_content(workspace_root, file_path)
+        if content:
+            result["display_type"] = "html"
+            result["data"] = content
+            result["preview"] = content[:1000] + "..." if len(content) > 1000 else content
+            return result
+
+    # CSV files
+    if ext in {'.csv', '.tsv'} or display_type in ("csv", "dataframe"):
+        content, is_text, error = read_file_content(workspace_root, file_path)
+        if content:
+            try:
+                import pandas as pd
+                import io
+                sep = '\t' if ext == '.tsv' else ','
+                df = pd.read_csv(io.StringIO(content), sep=sep)
+                df_result = _process_dataframe_for_display(df, title)
+                df_result["filename"] = result["filename"]
+                df_result["file_path"] = file_path
+                df_result["downloadable"] = True
+                return df_result
+            except Exception as e:
+                result["display_type"] = "text"
+                result["data"] = content
+                result["error"] = f"Could not parse as CSV: {e}"
+                return result
+
+    # JSON files (check for Plotly)
+    if ext == '.json' or display_type == "json":
+        content, is_text, error = read_file_content(workspace_root, file_path)
+        if content:
+            try:
+                data = json.loads(content)
+                # Check if it's Plotly JSON
+                if isinstance(data, dict) and 'data' in data and isinstance(data.get('data'), list):
+                    result["display_type"] = "plotly"
+                    result["data"] = data
+                else:
+                    result["display_type"] = "json"
+                    result["data"] = data
+                return result
+            except json.JSONDecodeError:
+                result["display_type"] = "text"
+                result["data"] = content
+                return result
+
+    # PDF files
+    if ext == '.pdf':
+        b64, filename, mime = get_file_download_data(workspace_root, file_path)
+        if b64:
+            result["display_type"] = "pdf"
+            result["data"] = b64
+            result["mime_type"] = mime
+            return result
+
+    # Default: try to read as text
+    content, is_text, error = read_file_content(workspace_root, file_path)
+    if content:
+        result["display_type"] = "text"
+        result["data"] = content
+        return result
+
+    result["status"] = "error"
+    result["error"] = error or "Could not read file"
+    return result
+
+
+def _process_dataframe_for_display(df: Any, title: Optional[str]) -> Dict[str, Any]:
+    """Process a pandas DataFrame for display."""
+    result = {
+        "type": "display_inline",
+        "display_type": "dataframe",
+        "title": title,
+        "data": None,
+        "preview": None,
+        "downloadable": True,
+        "status": "success",
+        "error": None
+    }
+
+    # Create preview (first 10 rows)
+    preview_df = df.head(10)
+    result["preview"] = {
+        "html": preview_df.to_html(index=False, classes="dataframe-table"),
+        "rows_shown": len(preview_df),
+        "total_rows": len(df),
+        "columns": list(df.columns)
+    }
+
+    # Full data
+    result["data"] = {
+        "html": df.to_html(index=False, classes="dataframe-table"),
+        "records": df.to_dict('records'),
+        "columns": list(df.columns),
+        "shape": list(df.shape)
+    }
+
+    # CSV for download
+    result["csv"] = df.to_csv(index=False)
+
+    return result
+
+
+# =============================================================================
 # BASH TOOL
 # =============================================================================
 

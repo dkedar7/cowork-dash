@@ -245,14 +245,18 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
     # Result section (collapsible, only if completed)
     result_section = None
     if tool_result is not None and is_completed:
-        result_display = str(tool_result)
-        if len(result_display) > 500:
-            result_display = result_display[:500] + "..."
+        # Special handling for display_inline results - render them richly
+        if tool_name == "display_inline" and isinstance(tool_result, dict) and tool_result.get("type") == "display_inline":
+            result_section = render_display_inline_result(tool_result, colors)
+        else:
+            result_display = str(tool_result)
+            if len(result_display) > 500:
+                result_display = result_display[:500] + "..."
 
-        result_section = html.Details([
-            html.Summary("Result", className="tool-call-summary"),
-            html.Pre(result_display, className="tool-call-result")
-        ], style={"marginTop": "5px"})
+            result_section = html.Details([
+                html.Summary("Result", className="tool-call-summary"),
+                html.Pre(result_display, className="tool-call-result")
+            ], style={"marginTop": "5px"})
 
     children = [tool_header]
     if args_section:
@@ -261,6 +265,196 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
         children.append(result_section)
 
     return html.Div(children, className=f"tool-call {status_class}")
+
+
+def render_display_inline_result(result: Dict, colors: Dict) -> html.Div:
+    """Render display_inline tool result as rich interactive content.
+
+    Args:
+        result: The display_inline result dictionary
+        colors: Color scheme dict
+
+    Returns:
+        A Dash html.Div component with the rendered content
+    """
+    display_type = result.get("display_type", "text")
+    title = result.get("title")
+    data = result.get("data")
+    preview = result.get("preview")
+    error = result.get("error")
+    status = result.get("status", "success")
+    filename = result.get("filename")
+    downloadable = result.get("downloadable", False)
+    csv_data = result.get("csv")
+
+    # Build title header if present
+    header_children = []
+    if title:
+        header_children.append(
+            html.Div(title, className="display-inline-title", style={
+                "fontWeight": "600",
+                "fontSize": "15px",
+                "marginBottom": "8px",
+            })
+        )
+
+    # Error state
+    if status == "error":
+        return html.Div([
+            *header_children,
+            html.Div([
+                html.Span("Error: ", style={"fontWeight": "600"}),
+                html.Span(error or "Unknown error")
+            ], className="display-inline-error", style={
+                "color": "#e53e3e",
+                "padding": "10px",
+                "borderRadius": "5px",
+                "backgroundColor": "rgba(229, 62, 62, 0.1)",
+            })
+        ], className="display-inline-container")
+
+    content_element = None
+
+    # Render based on display type
+    if display_type == "image":
+        mime_type = result.get("mime_type", "image/png")
+        data_url = f"data:{mime_type};base64,{data}"
+        content_element = html.Img(
+            src=data_url,
+            className="display-inline-image",
+            style={
+                "maxWidth": "100%",
+                "maxHeight": "400px",
+                "borderRadius": "5px",
+                "objectFit": "contain",
+            }
+        )
+
+    elif display_type == "plotly":
+        content_element = dcc.Graph(
+            figure=data,
+            config={"displayModeBar": True, "responsive": True},
+            style={"height": "350px"},
+            className="display-inline-plotly"
+        )
+
+    elif display_type == "dataframe":
+        # Show preview with expand option for full data
+        preview_html = preview.get("html", "") if isinstance(preview, dict) else ""
+        rows_shown = preview.get("rows_shown", 0) if isinstance(preview, dict) else 0
+        total_rows = preview.get("total_rows", 0) if isinstance(preview, dict) else 0
+        columns = preview.get("columns", []) if isinstance(preview, dict) else []
+
+        # Summary line
+        summary = f"{total_rows} rows × {len(columns)} columns"
+        if rows_shown < total_rows:
+            summary += f" (showing first {rows_shown})"
+
+        content_element = html.Div([
+            html.Div(summary, className="display-inline-df-summary", style={
+                "fontSize": "12px",
+                "marginBottom": "5px",
+                "opacity": "0.8",
+            }),
+            html.Div(
+                dcc.Markdown(preview_html, dangerously_allow_html=True),
+                className="display-inline-dataframe",
+                style={
+                    "overflowX": "auto",
+                    "maxHeight": "300px",
+                    "overflowY": "auto",
+                }
+            )
+        ])
+
+    elif display_type == "html":
+        # Show preview thumbnail with expand button
+        preview_content = preview or data
+        if len(str(preview_content)) > 500:
+            preview_content = str(preview_content)[:500] + "..."
+
+        content_element = html.Details([
+            html.Summary("HTML Content", className="tool-call-summary"),
+            html.Iframe(
+                srcDoc=data,
+                style={
+                    "width": "100%",
+                    "height": "300px",
+                    "border": "1px solid #ddd",
+                    "borderRadius": "5px",
+                    "backgroundColor": "white",
+                }
+            )
+        ], className="display-inline-html")
+
+    elif display_type == "pdf":
+        mime_type = result.get("mime_type", "application/pdf")
+        data_url = f"data:{mime_type};base64,{data}"
+        content_element = html.Embed(
+            src=data_url,
+            type="application/pdf",
+            style={
+                "width": "100%",
+                "height": "400px",
+                "borderRadius": "5px",
+            }
+        )
+
+    elif display_type == "json":
+        json_str = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
+        content_element = html.Details([
+            html.Summary("JSON Data", className="tool-call-summary"),
+            html.Pre(json_str, className="display-inline-json", style={
+                "maxHeight": "300px",
+                "overflowY": "auto",
+                "fontSize": "12px",
+                "padding": "10px",
+                "borderRadius": "5px",
+            })
+        ])
+
+    else:  # text or unknown
+        text_content = str(data) if data else ""
+        if len(text_content) > 1000:
+            content_element = html.Details([
+                html.Summary(f"Text ({len(text_content)} chars)", className="tool-call-summary"),
+                html.Pre(text_content, className="display-inline-text", style={
+                    "maxHeight": "300px",
+                    "overflowY": "auto",
+                    "whiteSpace": "pre-wrap",
+                    "fontSize": "13px",
+                })
+            ])
+        else:
+            content_element = html.Pre(text_content, className="display-inline-text", style={
+                "whiteSpace": "pre-wrap",
+                "fontSize": "13px",
+            })
+
+    # Build footer with download option if applicable
+    footer_children = []
+    if filename:
+        footer_children.append(
+            html.Span(filename, className="display-inline-filename", style={
+                "fontSize": "11px",
+                "opacity": "0.7",
+            })
+        )
+
+    # Assemble final component
+    children = [*header_children]
+    if content_element:
+        children.append(content_element)
+    if footer_children:
+        children.append(
+            html.Div(footer_children, style={"marginTop": "5px"})
+        )
+
+    return html.Div(children, className="display-inline-container", style={
+        "padding": "10px",
+        "borderRadius": "8px",
+        "marginTop": "5px",
+    })
 
 
 def format_tool_calls_inline(tool_calls: List[Dict], colors: Dict):
