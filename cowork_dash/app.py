@@ -1493,7 +1493,8 @@ def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_
 @app.callback(
     [Output({"type": "folder-children", "path": ALL}, "style"),
      Output({"type": "folder-icon", "path": ALL}, "style"),
-     Output({"type": "folder-children", "path": ALL}, "children")],
+     Output({"type": "folder-children", "path": ALL}, "children"),
+     Output("expanded-folders", "data")],
     Input({"type": "folder-icon", "path": ALL}, "n_clicks"),
     [State({"type": "folder-header", "path": ALL}, "id"),
      State({"type": "folder-header", "path": ALL}, "data-realpath"),
@@ -1503,16 +1504,18 @@ def handle_interrupt_response(approve_clicks, reject_clicks, edit_clicks, input_
      State({"type": "folder-icon", "path": ALL}, "style"),
      State({"type": "folder-children", "path": ALL}, "children"),
      State("theme-store", "data"),
-     State("session-id", "data")],
+     State("session-id", "data"),
+     State("expanded-folders", "data")],
     prevent_initial_call=True
 )
-def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, children_styles, icon_styles, children_content, theme, session_id):
+def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, children_styles, icon_styles, children_content, theme, session_id, expanded_folders):
     """Toggle folder expansion and lazy load contents if needed."""
     ctx = callback_context
     if not ctx.triggered or not any(n_clicks):
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
+    expanded_folders = expanded_folders or []
 
     # Get workspace for this session (virtual or physical)
     workspace_root = get_workspace_for_session(session_id)
@@ -1538,6 +1541,9 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
     new_icon_styles = []
     new_children_content = []
 
+    # Track whether we're expanding or collapsing the clicked folder
+    will_expand = None
+
     # Process all folder-children elements
     for i, child_id in enumerate(children_ids):
         path = child_id["path"]
@@ -1547,6 +1553,7 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
         if path == clicked_path:
             # Toggle this folder
             is_expanded = current_style.get("display") != "none"
+            will_expand = not is_expanded
             new_children_styles.append({"display": "none" if is_expanded else "block"})
 
             # If expanding and content is just "Loading...", load the actual contents
@@ -1560,7 +1567,8 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
                         folder_items = load_folder_contents(folder_rel_path, workspace_root)
                         loaded_content = render_file_tree(folder_items, colors, STYLES,
                                                           level=folder_rel_path.count("/") + folder_rel_path.count("\\") + 1,
-                                                          parent_path=folder_rel_path)
+                                                          parent_path=folder_rel_path,
+                                                          expanded_folders=expanded_folders)
                         new_children_content.append(loaded_content if loaded_content else current_content)
                     except Exception as e:
                         print(f"Error loading folder {folder_rel_path}: {e}")
@@ -1597,14 +1605,23 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
         else:
             new_icon_styles.append(current_icon_style)
 
-    return new_children_styles, new_icon_styles, new_children_content
+    # Update expanded folders list
+    new_expanded_folders = list(expanded_folders)
+    if will_expand is not None:
+        if will_expand and clicked_path not in new_expanded_folders:
+            new_expanded_folders.append(clicked_path)
+        elif not will_expand and clicked_path in new_expanded_folders:
+            new_expanded_folders.remove(clicked_path)
+
+    return new_children_styles, new_icon_styles, new_children_content, new_expanded_folders
 
 
 # Enter folder callback - triggered by double-clicking folder name (changes workspace root)
 @app.callback(
     [Output("current-workspace-path", "data"),
      Output("workspace-breadcrumb", "children"),
-     Output("file-tree", "children", allow_duplicate=True)],
+     Output("file-tree", "children", allow_duplicate=True),
+     Output("expanded-folders", "data", allow_duplicate=True)],
     [Input({"type": "folder-select", "path": ALL}, "n_clicks"),
      Input("breadcrumb-root", "n_clicks"),
      Input({"type": "breadcrumb-segment", "index": ALL}, "n_clicks")],
@@ -1720,13 +1737,13 @@ def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, fold
     else:
         workspace_full_path = workspace_root / new_path if new_path else workspace_root
 
-    # Render new file tree
+    # Render new file tree (reset expanded folders when navigating)
     file_tree = render_file_tree(
         build_file_tree(workspace_full_path, workspace_full_path),
         colors, STYLES
     )
 
-    return new_path, breadcrumb_children, file_tree
+    return new_path, breadcrumb_children, file_tree, []  # Reset expanded folders
 
 
 # File click - open modal
@@ -2171,13 +2188,15 @@ def open_terminal(n_clicks):
     [State("current-workspace-path", "data"),
      State("theme-store", "data"),
      State("collapsed-canvas-items", "data"),
-     State("session-id", "data")],
+     State("session-id", "data"),
+     State("expanded-folders", "data")],
     prevent_initial_call=True
 )
-def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids, session_id):
+def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids, session_id, expanded_folders):
     """Refresh both file tree and canvas content."""
     colors = get_colors(theme or "light")
     collapsed_ids = collapsed_ids or []
+    expanded_folders = expanded_folders or []
 
     # Get workspace for this session (virtual or physical)
     workspace_root = get_workspace_for_session(session_id)
@@ -2188,8 +2207,8 @@ def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids, session_i
     else:
         current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
 
-    # Refresh file tree for current workspace
-    file_tree = render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
+    # Refresh file tree for current workspace, preserving expanded folders
+    file_tree = render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders)
 
     # Re-render canvas from current in-memory state (don't reload from file)
     # This preserves canvas items that may not have been exported to .canvas/canvas.md yet
@@ -2209,15 +2228,17 @@ def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids, session_i
     [State("file-upload-sidebar", "filename"),
      State("current-workspace-path", "data"),
      State("theme-store", "data"),
-     State("session-id", "data")],
+     State("session-id", "data"),
+     State("expanded-folders", "data")],
     prevent_initial_call=True
 )
-def handle_sidebar_upload(contents, filenames, current_workspace, theme, session_id):
+def handle_sidebar_upload(contents, filenames, current_workspace, theme, session_id, expanded_folders):
     """Handle file uploads from sidebar button to current workspace."""
     if not contents:
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
+    expanded_folders = expanded_folders or []
 
     # Get workspace for this session (virtual or physical)
     workspace_root = get_workspace_for_session(session_id)
@@ -2240,7 +2261,7 @@ def handle_sidebar_upload(contents, filenames, current_workspace, theme, session
         except Exception as e:
             print(f"Upload error: {e}")
 
-    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders)
 
 
 # Create folder modal - open
@@ -2283,15 +2304,17 @@ def toggle_create_folder_modal(open_clicks, cancel_clicks, confirm_clicks, is_op
     [State("new-folder-name", "value"),
      State("current-workspace-path", "data"),
      State("theme-store", "data"),
-     State("session-id", "data")],
+     State("session-id", "data"),
+     State("expanded-folders", "data")],
     prevent_initial_call=True
 )
-def create_folder(n_clicks, folder_name, current_workspace, theme, session_id):
+def create_folder(n_clicks, folder_name, current_workspace, theme, session_id, expanded_folders):
     """Create a new folder in the current workspace directory."""
     if not n_clicks:
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
+    expanded_folders = expanded_folders or []
 
     if not folder_name or not folder_name.strip():
         return no_update, "Please enter a folder name", no_update
@@ -2319,7 +2342,7 @@ def create_folder(n_clicks, folder_name, current_workspace, theme, session_id):
 
     try:
         folder_path.mkdir(parents=True, exist_ok=False)
-        return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES), "", ""
+        return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders), "", ""
     except Exception as e:
         return no_update, f"Error creating folder: {e}", no_update
 
@@ -2405,15 +2428,17 @@ def update_canvas_content(n_intervals, view_value, theme, collapsed_ids, session
     [State("current-workspace-path", "data"),
      State("theme-store", "data"),
      State("session-id", "data"),
-     State("sidebar-view-toggle", "value")],
+     State("sidebar-view-toggle", "value"),
+     State("expanded-folders", "data")],
     prevent_initial_call=True
 )
-def poll_file_tree_update(n_intervals, current_workspace, theme, session_id, view_value):
+def poll_file_tree_update(n_intervals, current_workspace, theme, session_id, view_value, expanded_folders):
     """Refresh file tree during agent execution to show newly created files.
 
     This callback runs on each poll interval and refreshes the file tree
     so that files created by the agent are visible in real-time.
     Only updates when viewing files (not canvas).
+    Preserves expanded folder state across refreshes.
     """
     # Only refresh when viewing files panel
     if view_value != "files":
@@ -2429,6 +2454,7 @@ def poll_file_tree_update(n_intervals, current_workspace, theme, session_id, vie
         raise PreventUpdate
 
     colors = get_colors(theme or "light")
+    expanded_folders = expanded_folders or []
 
     # Get workspace for this session (virtual or physical)
     workspace_root = get_workspace_for_session(session_id)
@@ -2439,8 +2465,8 @@ def poll_file_tree_update(n_intervals, current_workspace, theme, session_id, vie
     else:
         current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
 
-    # Refresh file tree
-    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
+    # Refresh file tree, preserving expanded folder state
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders)
 
 
 # Open clear canvas confirmation modal

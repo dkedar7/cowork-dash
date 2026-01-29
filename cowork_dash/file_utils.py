@@ -136,15 +136,17 @@ def load_folder_contents(
     return build_file_tree(full_path, workspace_root, lazy_load=True)
 
 
-def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int = 0, parent_path: str = "") -> List:
+def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int = 0, parent_path: str = "", expanded_folders: List[str] = None) -> List:
     """Render file tree with collapsible folders using CSS classes for theming."""
     components = []
     indent = level * 15  # Scaled up indent
+    expanded_folders = expanded_folders or []
 
     for item in items:
         if item["type"] == "folder":
             folder_id = item["path"].replace("/", "_").replace("\\", "_")
             children = item.get("children", [])
+            is_expanded = folder_id in expanded_folders
 
             # Folder header with expand icon and selectable name
             components.append(
@@ -160,6 +162,7 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                             "transition": "transform 0.15s",
                             "display": "inline-block",
                             "padding": "2px",
+                            "transform": "rotate(90deg)" if is_expanded else "rotate(0deg)",
                         }
                     ),
                     # Folder name (clickable for selection)
@@ -196,7 +199,7 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
 
             if children:
                 # Children are loaded, render them
-                child_content = render_file_tree(children, colors, styles, level + 1, item["path"])
+                child_content = render_file_tree(children, colors, styles, level + 1, item["path"], expanded_folders)
             elif not has_children:
                 # Folder is known to be empty
                 child_content = [
@@ -226,7 +229,7 @@ def render_file_tree(items: List[Dict], colors: Dict, styles: Dict, level: int =
                 html.Div(
                     child_content,
                     id={"type": "folder-children", "path": folder_id},
-                    style={"display": "none"}  # Collapsed by default
+                    style={"display": "block" if is_expanded else "none"}
                 )
             )
         else:
