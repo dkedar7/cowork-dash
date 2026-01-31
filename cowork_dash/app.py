@@ -1138,7 +1138,7 @@ def initialize_file_tree_for_session(session_initialized, session_id, current_wo
     current_workspace_dir = workspace_root.path(current_workspace) if current_workspace else workspace_root.root
 
     # Build and render file tree
-    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES)
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, workspace_root=workspace_root)
 
 
 # Chat callbacks
@@ -1576,7 +1576,8 @@ def toggle_folder(n_clicks, header_ids, real_paths, children_ids, icon_ids, chil
                         loaded_content = render_file_tree(folder_items, colors, STYLES,
                                                           level=folder_rel_path.count("/") + folder_rel_path.count("\\") + 1,
                                                           parent_path=folder_rel_path,
-                                                          expanded_folders=expanded_folders)
+                                                          expanded_folders=expanded_folders,
+                                                          workspace_root=workspace_root)
                         new_children_content.append(loaded_content if loaded_content else current_content)
                     except Exception as e:
                         print(f"Error loading folder {folder_rel_path}: {e}")
@@ -1748,7 +1749,8 @@ def enter_folder(folder_clicks, root_clicks, breadcrumb_clicks, folder_ids, fold
     # Render new file tree (reset expanded folders when navigating)
     file_tree = render_file_tree(
         build_file_tree(workspace_full_path, workspace_full_path),
-        colors, STYLES
+        colors, STYLES,
+        workspace_root=workspace_root
     )
 
     return new_path, breadcrumb_children, file_tree, []  # Reset expanded folders
@@ -2014,6 +2016,141 @@ def open_file_modal(all_n_clicks, all_ids, click_tracker, theme, session_id):
                         "color": colors["text_primary"],
                     }
                 )
+        elif file_ext in ('.csv', '.tsv'):
+            # CSV/TSV files - render as table with raw view option
+            import io as _io
+            try:
+                import pandas as pd
+                sep = '\t' if file_ext == '.tsv' else ','
+                df = pd.read_csv(_io.StringIO(content), sep=sep)
+
+                # Pagination settings
+                rows_per_page = 50
+                total_rows = len(df)
+                total_pages = max(1, (total_rows + rows_per_page - 1) // rows_per_page)
+                current_page = 0
+
+                # Create table preview (first page)
+                start_idx = current_page * rows_per_page
+                end_idx = min(start_idx + rows_per_page, total_rows)
+                preview_df = df.iloc[start_idx:end_idx]
+
+                # Row info for display
+                if total_rows > rows_per_page:
+                    row_info = f"Rows {start_idx + 1}-{end_idx} of {total_rows}"
+                else:
+                    row_info = f"{total_rows} rows"
+
+                modal_content = html.Div([
+                    # Tab buttons for switching views
+                    html.Div([
+                        html.Button("Table", id="html-preview-tab", n_clicks=0,
+                            className="html-tab-btn html-tab-active",
+                            style={"marginRight": "8px", "padding": "6px 12px", "border": "none",
+                                   "borderRadius": "4px", "cursor": "pointer",
+                                   "background": colors["accent"], "color": "#fff"}),
+                        html.Button("Raw", id="html-source-tab", n_clicks=0,
+                            className="html-tab-btn",
+                            style={"padding": "6px 12px", "border": f"1px solid {colors['border']}",
+                                   "borderRadius": "4px", "cursor": "pointer",
+                                   "background": "transparent", "color": colors["text_primary"]}),
+                    ], style={"marginBottom": "12px", "display": "flex"}),
+                    # Row count info and pagination controls
+                    html.Div([
+                        html.Span(f"{len(df.columns)} columns, {row_info}", id="csv-row-info", style={
+                            "fontSize": "12px",
+                            "color": colors["text_muted"],
+                        }),
+                        # Pagination controls (only show if more than one page)
+                        html.Div([
+                            html.Button("◀", id="csv-prev-page", n_clicks=0,
+                                disabled=current_page == 0,
+                                style={
+                                    "padding": "4px 8px", "border": f"1px solid {colors['border']}",
+                                    "borderRadius": "4px", "cursor": "pointer",
+                                    "background": "transparent", "color": colors["text_primary"],
+                                    "marginRight": "8px", "fontSize": "12px",
+                                }),
+                            html.Span(f"Page {current_page + 1} of {total_pages}", id="csv-page-info",
+                                style={"fontSize": "12px", "color": colors["text_primary"]}),
+                            html.Button("▶", id="csv-next-page", n_clicks=0,
+                                disabled=current_page >= total_pages - 1,
+                                style={
+                                    "padding": "4px 8px", "border": f"1px solid {colors['border']}",
+                                    "borderRadius": "4px", "cursor": "pointer",
+                                    "background": "transparent", "color": colors["text_primary"],
+                                    "marginLeft": "8px", "fontSize": "12px",
+                                }),
+                        ], style={"display": "flex" if total_pages > 1 else "none", "alignItems": "center"}),
+                    ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "8px"}),
+                    # Store CSV data for pagination
+                    dcc.Store(id="csv-data-store", data={
+                        "content": content,
+                        "sep": sep,
+                        "total_rows": total_rows,
+                        "total_pages": total_pages,
+                        "rows_per_page": rows_per_page,
+                        "current_page": current_page,
+                    }),
+                    # Table preview (default visible)
+                    html.Div([
+                        dcc.Markdown(
+                            preview_df.to_html(index=False, classes="csv-preview-table"),
+                            dangerously_allow_html=True,
+                            style={"overflow": "auto"}
+                        )
+                    ], id="html-preview-frame", className="csv-table-container", style={
+                        "border": f"1px solid {colors['border']}",
+                        "borderRadius": "4px",
+                        "background": colors["bg_secondary"],
+                        "maxHeight": "65vh",
+                        "overflow": "auto",
+                    }),
+                    # Raw CSV (hidden by default)
+                    html.Pre(
+                        content,
+                        id="html-source-code",
+                        style={
+                            "display": "none",
+                            "background": colors["bg_tertiary"],
+                            "padding": "16px",
+                            "fontSize": "12px",
+                            "fontFamily": "'IBM Plex Mono', monospace",
+                            "overflow": "auto",
+                            "maxHeight": "80vh",
+                            "whiteSpace": "pre-wrap",
+                            "wordBreak": "break-word",
+                            "margin": "0",
+                            "color": colors["text_primary"],
+                            "border": f"1px solid {colors['border']}",
+                            "borderRadius": "4px",
+                        }
+                    )
+                ])
+            except Exception as e:
+                # Fall back to raw text if parsing fails
+                modal_content = html.Div([
+                    html.Div(f"Could not parse as CSV: {e}", style={
+                        "fontSize": "12px",
+                        "color": colors["text_muted"],
+                        "marginBottom": "8px",
+                    }),
+                    html.Pre(
+                        content,
+                        style={
+                            "background": colors["bg_tertiary"],
+                            "padding": "16px",
+                            "fontSize": "12px",
+                            "fontFamily": "'IBM Plex Mono', monospace",
+                            "overflow": "auto",
+                            "maxHeight": "80vh",
+                            "whiteSpace": "pre-wrap",
+                            "wordBreak": "break-word",
+                            "margin": "0",
+                            "color": colors["text_primary"],
+                        }
+                    )
+                ])
         else:
             # Regular text files
             modal_content = html.Pre(
@@ -2087,10 +2224,12 @@ def download_from_modal(n_clicks, file_path, session_id):
      Output("html-source-tab", "style")],
     [Input("html-preview-tab", "n_clicks"),
      Input("html-source-tab", "n_clicks")],
-    [State("theme-store", "data")],
+    [State("theme-store", "data"),
+     State("html-preview-frame", "style"),
+     State("html-source-code", "style")],
     prevent_initial_call=True
 )
-def toggle_html_view(preview_clicks, source_clicks, theme):
+def toggle_html_view(preview_clicks, source_clicks, theme, current_preview_style, current_source_style):
     """Toggle between HTML preview and source code view."""
     ctx = callback_context
     if not ctx.triggered:
@@ -2099,28 +2238,18 @@ def toggle_html_view(preview_clicks, source_clicks, theme):
     colors = get_colors(theme or "light")
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-    # Base styles
-    preview_frame_style = {
-        "width": "100%",
-        "height": "80vh",
-        "border": f"1px solid {colors['border']}",
-        "borderRadius": "4px",
-        "background": "#fff",
-    }
-    source_code_style = {
+    # Preserve current styles and only update display property
+    # This ensures background colors set by the modal content are preserved
+    preview_frame_style = current_preview_style.copy() if current_preview_style else {}
+    source_code_style = current_source_style.copy() if current_source_style else {}
+
+    # Update theme-sensitive properties
+    source_code_style.update({
         "background": colors["bg_tertiary"],
-        "padding": "16px",
-        "fontSize": "12px",
-        "fontFamily": "'IBM Plex Mono', monospace",
-        "overflow": "auto",
-        "maxHeight": "80vh",
-        "whiteSpace": "pre-wrap",
-        "wordBreak": "break-word",
-        "margin": "0",
         "color": colors["text_primary"],
         "border": f"1px solid {colors['border']}",
-        "borderRadius": "4px",
-    }
+    })
+
     active_btn_style = {
         "marginRight": "8px", "padding": "6px 12px", "border": "none",
         "borderRadius": "4px", "cursor": "pointer",
@@ -2142,6 +2271,85 @@ def toggle_html_view(preview_clicks, source_clicks, theme):
         preview_frame_style["display"] = "block"
         source_code_style["display"] = "none"
         return preview_frame_style, source_code_style, active_btn_style, {**inactive_btn_style}
+
+
+# CSV pagination
+@app.callback(
+    [Output("html-preview-frame", "children", allow_duplicate=True),
+     Output("csv-row-info", "children"),
+     Output("csv-page-info", "children"),
+     Output("csv-prev-page", "disabled"),
+     Output("csv-next-page", "disabled"),
+     Output("csv-data-store", "data")],
+    [Input("csv-prev-page", "n_clicks"),
+     Input("csv-next-page", "n_clicks")],
+    [State("csv-data-store", "data"),
+     State("theme-store", "data")],
+    prevent_initial_call=True
+)
+def paginate_csv(prev_clicks, next_clicks, csv_data, theme):
+    """Handle CSV pagination."""
+    ctx = callback_context
+    if not ctx.triggered or not csv_data:
+        raise PreventUpdate
+
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    import io as _io
+    import pandas as pd
+
+    # Get current state
+    content = csv_data.get("content", "")
+    sep = csv_data.get("sep", ",")
+    total_rows = csv_data.get("total_rows", 0)
+    total_pages = csv_data.get("total_pages", 1)
+    rows_per_page = csv_data.get("rows_per_page", 50)
+    current_page = csv_data.get("current_page", 0)
+
+    # Update page based on which button was clicked
+    if triggered_id == "csv-prev-page" and current_page > 0:
+        current_page -= 1
+    elif triggered_id == "csv-next-page" and current_page < total_pages - 1:
+        current_page += 1
+    else:
+        raise PreventUpdate
+
+    # Parse CSV and get the page slice
+    try:
+        df = pd.read_csv(_io.StringIO(content), sep=sep)
+        start_idx = current_page * rows_per_page
+        end_idx = min(start_idx + rows_per_page, total_rows)
+        preview_df = df.iloc[start_idx:end_idx]
+
+        # Generate row info
+        if total_rows > rows_per_page:
+            row_info = f"{len(df.columns)} columns, Rows {start_idx + 1}-{end_idx} of {total_rows}"
+        else:
+            row_info = f"{len(df.columns)} columns, {total_rows} rows"
+
+        # Generate table HTML
+        table_html = dcc.Markdown(
+            preview_df.to_html(index=False, classes="csv-preview-table"),
+            dangerously_allow_html=True,
+            style={"overflow": "auto"}
+        )
+
+        # Update pagination state
+        updated_csv_data = {
+            **csv_data,
+            "current_page": current_page,
+        }
+
+        return (
+            table_html,
+            row_info,
+            f"Page {current_page + 1} of {total_pages}",
+            current_page == 0,  # prev disabled
+            current_page >= total_pages - 1,  # next disabled
+            updated_csv_data
+        )
+    except Exception:
+        raise PreventUpdate
 
 
 # Open terminal
@@ -2216,7 +2424,7 @@ def refresh_sidebar(n_clicks, current_workspace, theme, collapsed_ids, session_i
         current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
 
     # Refresh file tree for current workspace, preserving expanded folders
-    file_tree = render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders)
+    file_tree = render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders, workspace_root=workspace_root)
 
     # Re-render canvas from current in-memory state (don't reload from file)
     # This preserves canvas items that may not have been exported to .canvas/canvas.md yet
@@ -2269,7 +2477,7 @@ def handle_sidebar_upload(contents, filenames, current_workspace, theme, session
         except Exception as e:
             print(f"Upload error: {e}")
 
-    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders)
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders, workspace_root=workspace_root)
 
 
 # Create folder modal - open
@@ -2350,7 +2558,7 @@ def create_folder(n_clicks, folder_name, current_workspace, theme, session_id, e
 
     try:
         folder_path.mkdir(parents=True, exist_ok=False)
-        return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders), "", ""
+        return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders, workspace_root=workspace_root), "", ""
     except Exception as e:
         return no_update, f"Error creating folder: {e}", no_update
 
@@ -2474,7 +2682,7 @@ def poll_file_tree_update(n_intervals, current_workspace, theme, session_id, vie
         current_workspace_dir = workspace_root / current_workspace if current_workspace else workspace_root
 
     # Refresh file tree, preserving expanded folder state
-    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders)
+    return render_file_tree(build_file_tree(current_workspace_dir, current_workspace_dir), colors, STYLES, expanded_folders=expanded_folders, workspace_root=workspace_root)
 
 
 # Open clear canvas confirmation modal

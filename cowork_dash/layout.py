@@ -49,6 +49,7 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
             dcc.Store(id="expanded-folders", data=[]),
             dcc.Store(id="file-to-view", data=None),
             dcc.Store(id="file-click-tracker", data={}),
+            dcc.Store(id="csv-pagination", data={"page": 0, "total_pages": 0, "rows_per_page": 50}),
             dcc.Store(id="theme-store", data="light", storage_type="local"),
             dcc.Store(id="current-workspace-path", data=""),  # Relative path from original workspace root
             dcc.Store(id="collapsed-canvas-items", data=[]),  # Track which canvas items are collapsed

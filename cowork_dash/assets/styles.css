@@ -323,6 +323,99 @@ details summary:hover {
     border-color: var(--mantine-color-dark-4);
 }
 
+/* CSV Preview Table */
+.csv-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.csv-preview-table th {
+    background: #f1f3f4;
+    font-weight: 600;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 2px solid #e8eaed;
+    position: sticky;
+    top: 0;
+    white-space: nowrap;
+}
+
+.csv-preview-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid #e8eaed;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.csv-preview-table tr:hover td {
+    background: #f8f9fa;
+}
+
+.csv-table-container {
+    scrollbar-width: thin;
+}
+
+.csv-table-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.csv-table-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.csv-table-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.csv-table-container::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+[data-mantine-color-scheme="dark"] .csv-preview-table th {
+    background: var(--mantine-color-dark-6);
+    border-color: var(--mantine-color-dark-4);
+}
+
+[data-mantine-color-scheme="dark"] .csv-preview-table td {
+    border-color: var(--mantine-color-dark-4);
+}
+
+[data-mantine-color-scheme="dark"] .csv-preview-table tr:hover td {
+    background: var(--mantine-color-dark-5);
+}
+
+[data-mantine-color-scheme="dark"] .csv-table-container::-webkit-scrollbar-track {
+    background: var(--mantine-color-dark-6);
+}
+
+[data-mantine-color-scheme="dark"] .csv-table-container::-webkit-scrollbar-thumb {
+    background: var(--mantine-color-dark-4);
+}
+
+/* CSV Pagination Buttons */
+#csv-prev-page:disabled,
+#csv-next-page:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#csv-prev-page:not(:disabled):hover,
+#csv-next-page:not(:disabled):hover {
+    background: #f1f3f4 !important;
+}
+
+[data-mantine-color-scheme="dark"] #csv-prev-page:not(:disabled):hover,
+[data-mantine-color-scheme="dark"] #csv-next-page:not(:disabled):hover {
+    background: var(--mantine-color-dark-5) !important;
+}
+
 [data-mantine-color-scheme="dark"] details {
     background: var(--mantine-color-dark-6);
     border-color: var(--mantine-color-dark-4);
