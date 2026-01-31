@@ -210,7 +210,7 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
                         "background": "var(--mantine-color-body)",
                     }),
                 ], id="chat-panel", style={
-                    "flex": "1", "display": "flex", "flexDirection": "column",
+                    "flex": "3", "display": "flex", "flexDirection": "column",
                     "background": "var(--mantine-color-body)", "minWidth": "0",
                 }),
 
@@ -296,7 +296,6 @@ def create_layout(workspace_root, app_title, app_subtitle, colors, styles, agent
                         ], className="breadcrumb-bar", style={
                             "padding": "6px 10px",
                             "borderBottom": "1px solid var(--mantine-color-default-border)",
-                            "background": "var(--mantine-color-gray-0)",
                         }),
                         html.Div(
                             id="file-tree",
