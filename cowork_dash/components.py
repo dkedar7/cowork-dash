@@ -183,7 +183,7 @@ def format_todos_inline(todos, colors: Dict):
 
 
 def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
-    """Format a single tool call as a submessage.
+    """Format a single tool call as a collapsible submessage.
 
     Args:
         tool_call: Dict with 'name', 'args', and optionally 'result', 'status'
@@ -195,23 +195,15 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
     tool_result = tool_call.get("result")
     tool_status = tool_call.get("status", "pending")
 
-    # Status indicator - use CSS classes for theme awareness
+    # Status class for styling
     if tool_status == "success":
-        status_icon = "✓"
         status_class = "tool-call-success"
-        icon_class = "tool-call-icon-success"
     elif tool_status == "error":
-        status_icon = "✗"
         status_class = "tool-call-error"
-        icon_class = "tool-call-icon-error"
     elif tool_status == "running":
-        status_icon = "◐"
         status_class = "tool-call-running"
-        icon_class = "tool-call-icon-running"
     else:  # pending
-        status_icon = "○"
         status_class = "tool-call-pending"
-        icon_class = "tool-call-icon-pending"
 
     # Format args for display (truncate if too long)
     args_display = ""
@@ -224,47 +216,39 @@ def format_tool_call(tool_call: Dict, colors: Dict, is_completed: bool = False):
         except:
             args_display = str(tool_args)[:500]
 
-    # Build the tool call display using CSS classes
-    tool_header = html.Div([
-        html.Span(status_icon, className=icon_class, style={
-            "marginRight": "10px",
-            "fontWeight": "bold",
-        }),
-        html.Span("Tool: ", className="tool-call-label"),
-        html.Span(tool_name, className="tool-call-name"),
-    ], style={"display": "flex", "alignItems": "center"})
+    # Build inner content (shown when expanded)
+    inner_children = []
 
-    # Arguments section (collapsible)
-    args_section = None
+    # Arguments section
     if args_display:
-        args_section = html.Details([
+        inner_children.append(html.Details([
             html.Summary("Arguments", className="tool-call-summary"),
             html.Pre(args_display, className="tool-call-args")
-        ], style={"marginTop": "5px"})
+        ]))
 
-    # Result section (collapsible, only if completed)
-    result_section = None
+    # Result section (only if completed)
     if tool_result is not None and is_completed:
         # Special handling for display_inline results - render them richly
         if tool_name == "display_inline" and isinstance(tool_result, dict) and tool_result.get("type") == "display_inline":
-            result_section = render_display_inline_result(tool_result, colors)
+            inner_children.append(render_display_inline_result(tool_result, colors))
         else:
             result_display = str(tool_result)
             if len(result_display) > 500:
                 result_display = result_display[:500] + "..."
 
-            result_section = html.Details([
+            inner_children.append(html.Details([
                 html.Summary("Result", className="tool-call-summary"),
                 html.Pre(result_display, className="tool-call-result")
-            ], style={"marginTop": "5px"})
+            ]))
 
-    children = [tool_header]
-    if args_section:
-        children.append(args_section)
-    if result_section:
-        children.append(result_section)
-
-    return html.Div(children, className=f"tool-call {status_class}")
+    # Wrap entire tool call in a details element
+    return html.Details([
+        html.Summary([
+            html.Span(className="tool-call-status-dot"),
+            html.Span(tool_name, className="tool-call-name"),
+        ], className="tool-call-header"),
+        html.Div(inner_children, className="tool-call-body") if inner_children else None
+    ], className=f"tool-call {status_class}")
 
 
 def render_display_inline_result(result: Dict, colors: Dict) -> html.Div:
