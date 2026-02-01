@@ -1353,7 +1353,8 @@ def bash(command: str, timeout: int = 60) -> Dict[str, Any]:
     Runs the command in the workspace directory. Use this for file operations,
     git commands, installing packages, or any shell operations.
 
-    Note: This tool is disabled in virtual filesystem mode for security reasons.
+    In virtual filesystem mode (Linux only), commands run in a bubblewrap sandbox
+    with network disabled for security.
 
     Args:
         command: The bash command to execute
@@ -1379,15 +1380,9 @@ def bash(command: str, timeout: int = 60) -> Dict[str, Any]:
         # Run a script
         bash("python script.py")
     """
-    # Disable bash in virtual filesystem mode for security
+    # In virtual filesystem mode, use sandboxed execution
     if VIRTUAL_FS:
-        return {
-            "stdout": "",
-            "stderr": "Bash commands are disabled in virtual filesystem mode for security reasons. "
-                      "Use the built-in file tools (read_file, write_file, list_directory) instead.",
-            "return_code": 1,
-            "status": "error"
-        }
+        return _bash_sandboxed(command, timeout)
 
     try:
         result = subprocess.run(
@@ -1420,3 +1415,53 @@ def bash(command: str, timeout: int = 60) -> Dict[str, Any]:
             "return_code": -1,
             "status": "error"
         }
+
+
+def _bash_sandboxed(command: str, timeout: int = 60) -> Dict[str, Any]:
+    """Execute bash command in sandboxed environment for virtual FS mode.
+
+    Uses bubblewrap (Linux) for sandboxing with:
+    - No network access
+    - Isolated PID namespace
+    - Read-only system directories
+    - Writable workspace directory synced with VirtualFilesystem
+    """
+    from .sandbox import get_executor_for_session, get_available_sandbox
+    from .virtual_fs import get_session_manager
+
+    # Get current session context
+    session_id = get_tool_session_context()
+    if not session_id:
+        return {
+            "stdout": "",
+            "stderr": "No session context available for sandboxed execution",
+            "return_code": 1,
+            "status": "error"
+        }
+
+    # Check if sandbox is available
+    sandbox = get_available_sandbox()
+    if sandbox is None:
+        return {
+            "stdout": "",
+            "stderr": "Bash commands require bubblewrap (bwrap) or Docker in virtual filesystem mode. "
+                      "Install bubblewrap: apt-get install bubblewrap",
+            "return_code": 1,
+            "status": "error"
+        }
+
+    # Get the virtual filesystem for this session
+    fs = get_session_manager().get_filesystem(session_id)
+    if fs is None:
+        return {
+            "stdout": "",
+            "stderr": "Session filesystem not found",
+            "return_code": 1,
+            "status": "error"
+        }
+
+    # Get or create executor for this session
+    executor = get_executor_for_session(session_id, fs)
+
+    # Execute command in sandbox
+    return executor.execute(command, timeout=timeout)
