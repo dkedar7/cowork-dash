@@ -2,11 +2,12 @@
 Core functionality tests for Cowork Dash.
 
 Tests the main entry points:
-- CLI argument parsing (5 tests)
+- CLI argument parsing (7 tests)
 - run_app() Python API (7 tests)
 - Agent loading (3 tests)
+- Config/platform behavior (4 tests)
 
-Total: 15 tests
+Total: 21 tests
 """
 
 import os
@@ -72,6 +73,35 @@ def test_cli_title_subtitle(monkeypatch):
     with patch("cowork_dash.app.run_app") as mock_run:
         main()
         assert mock_run.call_args[1]["title"] == "My App"
+
+
+def test_cli_virtual_fs_flag(monkeypatch):
+    """Test CLI --virtual-fs flag is passed through."""
+    test_args = ["cowork-dash", "run", "--virtual-fs"]
+    monkeypatch.setattr("sys.argv", test_args)
+
+    with patch("cowork_dash.app.run_app") as mock_run:
+        with patch("platform.system") as mock_platform:
+            mock_platform.return_value = "Linux"
+            main()
+            # On Linux, virtual_fs=True should be passed
+            assert mock_run.call_args[1]["virtual_fs"] is True
+
+
+def test_cli_virtual_fs_warning_on_non_linux(monkeypatch, capsys):
+    """Test CLI --virtual-fs shows warning on non-Linux systems."""
+    test_args = ["cowork-dash", "run", "--virtual-fs"]
+    monkeypatch.setattr("sys.argv", test_args)
+
+    with patch("cowork_dash.app.run_app") as mock_run:
+        with patch("platform.system") as mock_platform:
+            mock_platform.return_value = "Darwin"  # macOS
+            main()
+            # Should set virtual_fs to None (fallback to config)
+            assert mock_run.call_args[1]["virtual_fs"] is None
+            # Should print warning
+            captured = capsys.readouterr()
+            assert "Warning" in captured.out or "warning" in captured.out.lower()
 
 
 # =============================================================================
@@ -217,3 +247,76 @@ agent = MyAgent()
     assert loaded_agent is not None
     assert error is None
     assert hasattr(loaded_agent, 'stream')
+
+
+# =============================================================================
+# CONFIG TESTS (4 tests)
+# =============================================================================
+
+
+def test_config_is_linux_function():
+    """Test is_linux() function returns correct value."""
+    from cowork_dash.config import is_linux
+    import platform
+
+    expected = platform.system() == "Linux"
+    assert is_linux() == expected
+
+
+def test_config_virtual_fs_disabled_on_non_linux():
+    """Test VIRTUAL_FS is False on non-Linux even when requested."""
+    import importlib
+    from unittest.mock import patch
+
+    # Mock platform.system to return macOS
+    with patch("platform.system") as mock_platform:
+        mock_platform.return_value = "Darwin"
+
+        # Set env var to request virtual FS
+        with patch.dict(os.environ, {"DEEPAGENT_VIRTUAL_FS": "true"}):
+            # Reload config module to pick up new values
+            import cowork_dash.config as config_module
+            importlib.reload(config_module)
+
+            # On non-Linux, VIRTUAL_FS should be False
+            assert config_module.VIRTUAL_FS is False
+            assert config_module.VIRTUAL_FS_UNAVAILABLE_REASON is not None
+            assert "Linux" in config_module.VIRTUAL_FS_UNAVAILABLE_REASON
+
+
+def test_config_virtual_fs_enabled_on_linux():
+    """Test VIRTUAL_FS can be enabled on Linux."""
+    import importlib
+    from unittest.mock import patch
+
+    # Mock platform.system to return Linux
+    with patch("platform.system") as mock_platform:
+        mock_platform.return_value = "Linux"
+
+        # Set env var to request virtual FS
+        with patch.dict(os.environ, {"DEEPAGENT_VIRTUAL_FS": "true"}):
+            # Reload config module to pick up new values
+            import cowork_dash.config as config_module
+            importlib.reload(config_module)
+
+            # On Linux with env var set, VIRTUAL_FS should be True
+            assert config_module.VIRTUAL_FS is True
+            assert config_module.VIRTUAL_FS_UNAVAILABLE_REASON is None
+
+
+def test_config_virtual_fs_default_false():
+    """Test VIRTUAL_FS defaults to False."""
+    import importlib
+    from unittest.mock import patch
+
+    # Remove env var if set
+    with patch.dict(os.environ, {}, clear=True):
+        # Keep other essential env vars
+        os.environ.pop("DEEPAGENT_VIRTUAL_FS", None)
+
+        # Reload config module
+        import cowork_dash.config as config_module
+        importlib.reload(config_module)
+
+        # Default should be False
+        assert config_module.VIRTUAL_FS is False
