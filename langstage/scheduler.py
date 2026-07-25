@@ -49,10 +49,24 @@ def _now_iso() -> str:
 
 
 def validate_cron(expr: str) -> None:
-    """Raise ValueError if ``expr`` isn't a valid 5-field cron expression."""
+    """Raise ValueError if ``expr`` isn't a valid **5-field** cron expression.
+
+    croniter also accepts 6-field (seconds) and 7-field (seconds + year)
+    expressions, but langstage documents and interprets standard 5-field UTC
+    cron only ('min hour day month weekday'). Without an explicit field-count
+    check, a 6-field Quartz/Spring/k8s-style cron pasted from another scheduler
+    is *silently* accepted by croniter and fires at a time the user never
+    intended — the exact misinterpretation the strict-5-field error message
+    promises to prevent (gh #108). So reject any non-5-field expression up
+    front, with the same clean error the 4-field case already gets.
+    """
     if croniter is None:  # pragma: no cover
         raise RuntimeError("croniter is required for scheduling. pip install croniter")
-    if not croniter.is_valid(expr):
+    # ``str.split()`` with no argument splits on runs of whitespace and drops
+    # empty fields, so '0  9 * * *' (double space) is still 5 fields. The count
+    # guard runs first so a croniter-valid 6-/7-field expression is rejected too,
+    # not just expressions croniter itself rejects (too few fields / garbage).
+    if len(expr.split()) != 5 or not croniter.is_valid(expr):
         raise ValueError(
             f"Invalid cron expression: {expr!r}. Expected 5 fields "
             "'min hour day month weekday', e.g. '*/15 * * * *' or '0 9 * * 1-5'."
