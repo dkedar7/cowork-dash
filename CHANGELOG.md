@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.13.30 — 2026-07-25
+
+### Fixed
+- **`POST /api/cron` (and the `schedule_run` agent tool) now reject any non-5-field
+  cron expression with the same clean 400 the 4-field case already got — so a 6- or
+  7-field cron pasted from another scheduler can no longer be silently accepted and
+  fired at an unintended time (gh #108).** Validation delegated entirely to
+  `croniter.is_valid`, which also accepts croniter's **6-field (seconds)** and
+  **7-field (seconds + year)** extensions. But both the endpoint's own 400 message and
+  the README document **standard 5-field UTC cron only** (*"Cron is interpreted in UTC.
+  `0 9 * * *` fires at 09:00 UTC"*). The result was a silent-misinterpretation bug: a
+  4-field cron was correctly rejected with *"Expected 5 fields 'min hour day month
+  weekday'"*, but a 6-field Quartz/Spring/k8s-style cron such as `30 0 9 * * *` was
+  **accepted (201)** and read by croniter as `min=30 hour=0 day=9 month=* weekday=*
+  second=*` — a `next_run` on the **9th at 00:30 UTC**, not the ~09:00 the user meant —
+  with no error and no warning. That is the exact class of misinterpretation the
+  strict-5-field message was written to prevent.
+  - `validate_cron` now asserts the field count **before** croniter:
+    `len(expr.split()) != 5` raises the existing *"Expected 5 fields …"* `ValueError`,
+    so anything but a standard 5-field expression is rejected up front. `str.split()`
+    (no argument) splits on runs of whitespace, so `"0  9 * * *"` (double space) is
+    still 5 fields; steps and ranges like `*/15 * * * *` and `0 9 * * 1-5` still pass.
+  - The guard lives in the **single shared** `validate_cron`, which both the HTTP
+    create path (`POST /api/cron` → `CronScheduler.add_job`) and the agent-facing
+    `schedule_run` tool call — so both surfaces enforce the identical 5-field contract,
+    and the endpoint's 400 message is finally true. The 4-field rejection is unchanged.
+
 ## 0.13.29 — 2026-07-25
 
 ### Fixed
