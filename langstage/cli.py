@@ -371,15 +371,25 @@ def check(agent_spec, demo, live, as_json):
 @click.option("--json", "as_json", is_flag=True, default=False,
               help="Emit the reply as JSON ({content, tool_calls}) for scripting/CI, "
                    "instead of just the assistant text.")
+@click.option("--no-context", "no_context", is_flag=True, default=False,
+              help="Withhold the per-message time + working-directory context the web "
+                   "chat injects, for a terse scriptable echo. By default `chat` injects "
+                   "that context so the reply mirrors a browser turn; --no-context opts "
+                   "out (cleaner output, but no longer browser-identical).")
 @click.argument("prompt")
-def chat(agent_spec, demo, workspace, as_json, prompt):
+def chat(agent_spec, demo, workspace, as_json, no_context, prompt):
     """Run ONE turn against the agent and print the assistant reply to stdout.
 
     The headless companion to the web stage - prompt in, answer out, with no server
     and no SSE dance. Keyless-testable with ``--demo``; honors the same
     ``--workspace`` / ``langstage.toml`` / ``LANGSTAGE_*`` resolution as ``run``.
-    Reuses the same streaming core the server drives (the shared ``SessionAdapter``),
-    so the reply is exactly what a browser would render, buffered into one turn.
+    Reuses the same streaming core the server drives (the shared ``SessionAdapter``)
+    **and injects the same per-message context (current time + resolved workspace) the
+    web chat does**, so for the same prompt the reply is genuinely what a browser would
+    render, buffered into one turn. That makes it a faithful readiness gate even for a
+    time-aware or workspace-aware agent (including the built-in default agent, whose
+    whole system prompt is about the workspace). Pass ``--no-context`` for the terse
+    echo that omits that context - cleaner for scripting, but no longer browser-identical.
 
     Exits non-zero if the agent errors (like ``check --live``), so it doubles as a
     readiness gate that also *shows* the answer. Add ``--json`` for a machine-readable
@@ -402,10 +412,17 @@ def chat(agent_spec, demo, workspace, as_json, prompt):
         raise click.ClickException(str(e) or type(e).__name__) from e
 
     from langstage.oneturn import run_turn_sync
+    from langstage.server import routes_chat
 
-    # No per-message time/cwd context injected here (unlike the web chat): the CLI
-    # is a clean "prompt in -> answer out" smoke test, so the reply isn't cluttered.
-    result = run_turn_sync(app.agent, prompt)
+    # Feed the agent the SAME per-message context (current time + resolved workspace)
+    # the web paths inject via routes_chat.context_parts(), so a `langstage chat` turn
+    # is genuinely identical to a browser turn - honoring the readiness-gate promise for
+    # time-aware / workspace-aware agents (gh #106). CoworkApp above already resolved and
+    # applied the workspace, so context_parts() reads the right one. --no-context restores
+    # the terse "prompt in -> answer out" echo for scripting. No cwd (the CLI has no file
+    # browser), so context reports the resolved workspace root - a browser's default folder.
+    context = None if no_context else routes_chat.context_parts()
+    result = run_turn_sync(app.agent, prompt, context_parts=context)
 
     if as_json:
         import json as _json

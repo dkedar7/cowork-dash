@@ -104,3 +104,85 @@ def test_run_turn_sync_drives_one_turn_end_to_end():
     result = run_turn_sync(_stub(), "sync smoke")
     assert result.ok
     assert "sync smoke" in result.content
+
+
+# ── the two siblings feed the agent the SAME input (gh #106) ─────────────────
+
+
+def test_cli_and_endpoint_feed_the_agent_the_same_input(monkeypatch):
+    """gh #106: `langstage chat` and `POST /api/chat/complete` share `complete_turn`
+    and are documented as producing an identical, browser-faithful reply — so they must
+    feed the agent the *same input* for the same prompt. Previously the CLI withheld the
+    per-message `[Current time]` / `[Working directory]` context the web paths inject, so
+    the demo echo agent (which reflects its input) returned different replies.
+
+    Drive the endpoint via `httpx.ASGITransport` and the CLI via `CliRunner`, both keyless
+    with `--demo` and the same prompt, and assert the replies match. `context_parts` is
+    pinned to a fixed value so the assertion is deterministic (no per-second timestamp /
+    workspace drift) and targets the real invariant: the CLI now injects the SAME context
+    the endpoint does. Fails before the fix (CLI fed no context), passes after.
+
+    This test is synchronous (not the module's default async): the CLI's `run_turn_sync`
+    calls `asyncio.run`, which can't be nested inside a running loop, so the endpoint leg
+    runs in its own `asyncio.run` and the CLI leg runs after it.
+    """
+    import asyncio
+    import json
+
+    from click.testing import CliRunner
+
+    from langstage import cli as cli_mod
+    from langstage.server import routes_chat
+
+    fixed = ["[Current time: 2026-07-25 00:00:00 UTC]", "[Working directory: /ws]"]
+    # Both siblings resolve `context_parts` from routes_chat at call time (the endpoint
+    # via its module global, the CLI via `routes_chat.context_parts()`), so one patch
+    # covers both. The demo echoes its full input, exposing any divergence.
+    monkeypatch.setattr(routes_chat, "context_parts", lambda cwd=None: list(fixed))
+
+    async def _endpoint_reply() -> str:
+        async with _client(_stub()) as c:
+            r = await c.post("/api/chat/complete", json={"content": "ping"})
+        assert r.status_code == 200
+        return r.json()["content"]
+
+    endpoint_content = asyncio.run(_endpoint_reply())
+
+    cli_result = CliRunner().invoke(cli_mod.main, ["chat", "--demo", "--json", "ping"])
+    assert cli_result.exit_code == 0, cli_result.output
+    cli_content = json.loads(cli_result.output)["content"]
+
+    # Same shared complete_turn + same demo agent + same injected context => same reply.
+    assert cli_content == endpoint_content
+    # And the context really is injected (guards against a both-empty false pass).
+    assert "[Working directory: /ws]" in cli_content
+    assert "ping" in cli_content
+
+
+def test_cli_no_context_flag_restores_the_terse_echo():
+    """gh #106: `--no-context` opts back out of the browser-identical context injection
+    for a clean scriptable echo — so the CLI's default (context injected) and its escape
+    hatch (context withheld) are demonstrably different, and the flag exists at all
+    (before the fix it did not, and the default omitted the context)."""
+    import json
+
+    from click.testing import CliRunner
+
+    from langstage import cli as cli_mod
+
+    default = CliRunner().invoke(cli_mod.main, ["chat", "--demo", "--json", "ping"])
+    raw = CliRunner().invoke(
+        cli_mod.main, ["chat", "--demo", "--no-context", "--json", "ping"]
+    )
+    assert default.exit_code == 0, default.output
+    assert raw.exit_code == 0, raw.output
+
+    default_content = json.loads(default.output)["content"]
+    raw_content = json.loads(raw.output)["content"]
+
+    # Default injects the real per-message context; --no-context strips it.
+    assert "[Working directory:" in default_content
+    assert "[Current time:" in default_content
+    assert "[Working directory:" not in raw_content
+    assert "[Current time:" not in raw_content
+    assert default_content != raw_content
