@@ -12,8 +12,18 @@ It does **not** reimplement streaming. It drives the same
 :class:`~langstage_core.adapters.SessionAdapter` the web server drives — the exact
 path ``POST /api/chat`` + ``GET /api/stream`` use — and simply *buffers* the
 serialized event frames into one assembled result instead of forwarding them over
-SSE. So the reply, tool calls, and terminal outcome are identical to what a browser
-would have rendered; the CLI and the HTTP endpoint share this one implementation.
+SSE. So for the *same submitted input* the reply, tool calls, and terminal outcome
+are identical to what a browser would have rendered; the CLI and the HTTP endpoint
+share this one implementation.
+
+Identity of the *input* is the caller's job, not this module's: ``complete_turn``
+takes ``context_parts`` and forwards them verbatim to ``SessionAdapter.submit_message``.
+The HTTP endpoint (``POST /api/chat/complete``) and ``langstage chat`` both pass the
+same per-message context — ``[Current time: …]`` + ``[Working directory: …]`` from
+``routes_chat.context_parts()`` — by default (gh #106), so a ``langstage chat`` turn
+truly mirrors a browser turn: a time-aware or workspace-aware agent sees the same input
+either way. (``langstage chat --no-context`` deliberately withholds that context for
+terse scriptable output, and is then no longer browser-identical — by request.)
 """
 from __future__ import annotations
 

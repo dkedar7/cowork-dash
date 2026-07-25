@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.13.29 — 2026-07-25
+
+### Fixed
+- **`langstage chat` now injects the same per-message context the web chat does, so
+  a headless turn is genuinely identical to a browser turn — matching what it (and
+  `oneturn.py`) already advertised (gh #106).** The two "buffered one-turn" siblings
+  that share `langstage/oneturn.py:complete_turn` — the CLI `langstage chat` and the
+  HTTP `POST /api/chat/complete` — fed the agent **different inputs** for the same
+  prompt. Both web paths (`POST /api/chat` SSE **and** `POST /api/chat/complete`)
+  prepend a per-message context block — `[Current time: …]` + `[Working directory: …]`
+  — via `routes_chat.context_parts()`; `langstage chat` deliberately did not. That
+  contradicted the very claim both docstrings made — the `chat` docstring's *"the reply
+  is exactly what a browser would render"* and `oneturn.py`'s *"identical to what a
+  browser would have rendered"* — and it silently defeated the feature's whole purpose:
+  `chat` / `check --live` are sold as a low-ceremony **readiness gate** that mirrors a
+  production turn, but for any time-aware or workspace-aware agent — including the
+  **built-in default agent, whose entire system prompt is about operating in the
+  workspace** — the gate validated a materially different input than what ships. The
+  keyless echo demo made the divergence visible: `langstage chat --demo "ping"` replied
+  `You said: ping`, while `POST /api/chat/complete {"content":"ping"}` replied
+  `You said: [Current time: …]\n[Working directory: …]\n\nping`.
+  - `langstage chat` now calls the **same** `routes_chat.context_parts()` the web paths
+    use and forwards it through the shared `complete_turn`, so both siblings feed the
+    agent the same input and produce the same reply. `CoworkApp` has already resolved
+    and `apply_workspace`'d the workspace by the time the context is built, so the
+    reported `[Working directory: …]` is the real resolved workspace root (the browser's
+    default folder), not the launch cwd. The CLI has no file browser, so no `cwd`
+    subfolder is applied.
+  - A new **`--no-context`** flag opts back out — the terse `prompt in -> answer out`
+    echo, for clean scriptable output — at the explicit cost of no longer being
+    browser-identical. This keeps the #101 "clean `--demo` echo" use case one flag away
+    without letting the *default* silently misrepresent a browser turn.
+  - The overstated equivalence claims in the `chat` command docstring and `oneturn.py`'s
+    module docstring are corrected to describe the shipped behavior precisely: identity
+    of *output* follows from feeding the *same input*, which both callers now do by
+    default; `--no-context` is the documented exception. The historical 0.13.27
+    changelog entry is left as-is (it records what shipped then); this release makes its
+    "exactly what a browser would render" description true by default.
+
 ## 0.13.28 — 2026-07-23
 
 ### Fixed
