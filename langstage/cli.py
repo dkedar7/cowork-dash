@@ -1,5 +1,7 @@
 """CLI: langstage run [OPTIONS]."""
 
+import os
+
 import click
 
 from langstage.app import CoworkApp
@@ -414,15 +416,29 @@ def chat(agent_spec, demo, workspace, as_json, no_context, prompt):
     from langstage.oneturn import run_turn_sync
     from langstage.server import routes_chat
 
-    # Feed the agent the SAME per-message context (current time + resolved workspace)
-    # the web paths inject via routes_chat.context_parts(), so a `langstage chat` turn
-    # is genuinely identical to a browser turn - honoring the readiness-gate promise for
-    # time-aware / workspace-aware agents (gh #106). CoworkApp above already resolved and
-    # applied the workspace, so context_parts() reads the right one. --no-context restores
-    # the terse "prompt in -> answer out" echo for scripting. No cwd (the CLI has no file
-    # browser), so context reports the resolved workspace root - a browser's default folder.
-    context = None if no_context else routes_chat.context_parts()
-    result = run_turn_sync(app.agent, prompt, context_parts=context)
+    # Enter the resolved workspace before the turn — the same chdir `run()` does via
+    # `_enter_workspace()` (ADR 0006) — so a bring-your-own agent's raw relative file ops
+    # (`Path("out.txt").write_text(...)`) land IN the workspace, where the file browser
+    # shows them, instead of the launch cwd. Without this, `chat` injected a
+    # `[Working directory: <workspace>]` line (below) while the process cwd stayed the
+    # launch dir, so the agent's `os.getcwd()` and its relative writes disagreed with a
+    # browser turn — the residual gap after #106 (gh #110). Do it unconditionally, before
+    # building the context, so `--no-context` follows the workspace too. Restore the prior
+    # cwd afterward so a library/embedded caller of this path isn't left with a changed cwd.
+    prior_cwd = os.getcwd()
+    app._enter_workspace()
+    try:
+        # Feed the agent the SAME per-message context (current time + resolved workspace)
+        # the web paths inject via routes_chat.context_parts(), so a `langstage chat` turn
+        # is genuinely identical to a browser turn - honoring the readiness-gate promise for
+        # time-aware / workspace-aware agents (gh #106). CoworkApp above already resolved and
+        # applied the workspace, so context_parts() reads the right one. --no-context restores
+        # the terse "prompt in -> answer out" echo for scripting. No cwd (the CLI has no file
+        # browser), so context reports the resolved workspace root - a browser's default folder.
+        context = None if no_context else routes_chat.context_parts()
+        result = run_turn_sync(app.agent, prompt, context_parts=context)
+    finally:
+        os.chdir(prior_cwd)
 
     if as_json:
         import json as _json

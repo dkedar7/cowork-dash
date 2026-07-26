@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.13.31 — 2026-07-26
+
+### Fixed
+- **`langstage chat` now `chdir`s into the resolved workspace before the turn, so the
+  agent's process `os.getcwd()` and its relative file ops actually land in the workspace
+  — matching a browser turn instead of only *naming* the workspace in the injected
+  context (gh #110).** This is the residual gap left after #106. That fix made `chat`
+  inject the same `[Working directory: <workspace>]` context line the web chat does, but
+  `chat` never entered the workspace the way the web server does: `run()` calls
+  `CoworkApp._enter_workspace()` (which does `os.chdir(workspace_root())`, per ADR 0006),
+  while `chat` constructed `CoworkApp(...)` and called `run_turn_sync(app.agent, …)`
+  directly — never `run()`, never `_enter_workspace()`. So the injected line said the
+  working directory was the workspace while the process cwd stayed the **launch** dir, and
+  a bring-your-own agent's raw relative write (`Path("out.txt").write_text(...)`) landed
+  **outside** the workspace the file browser shows — inconsistently with what the same
+  turn does in the browser.
+  - `chat` now enters the resolved workspace (via `app._enter_workspace()`) after
+    `CoworkApp` has resolved and `apply_workspace`'d it and before `run_turn_sync`, exactly
+    mirroring `run()`. The chdir is **unconditional**, so `--no-context` follows the
+    workspace too — cwd tracks the resolved workspace whether or not the context line is
+    injected.
+  - The CLI restores the caller's **prior cwd after the turn**, so a library/embedded
+    caller of the chat path isn't left with a changed cwd.
+  - The web/`run()` path and `__init__`'s deliberate no-cwd-side-effect contract are
+    unchanged (embedding `CoworkApp` still never moves the process cwd).
+
 ## 0.13.30 — 2026-07-25
 
 ### Fixed
