@@ -186,3 +186,83 @@ def test_cli_no_context_flag_restores_the_terse_echo():
     assert "[Working directory:" not in raw_content
     assert "[Current time:" not in raw_content
     assert default_content != raw_content
+
+
+# ── chat enters the resolved workspace before the turn (gh #110) ──────────────
+
+# A bring-your-own agent whose single node reports its process cwd and does a RAW
+# relative write (`Path("probe_out.txt").write_text(cwd)`) — the file lands wherever
+# the process cwd is, so where it appears is a direct probe of whether `chat` chdir'd
+# into the workspace. Mirrors the issue's probe_agent.py pattern.
+_PROBE_AGENT_SRC = '''
+import os
+from pathlib import Path
+
+from langchain_core.messages import AIMessage
+from langgraph.graph import END, START, MessagesState, StateGraph
+
+
+def _probe(state):
+    cwd = os.getcwd()
+    Path("probe_out.txt").write_text(cwd, encoding="utf-8")
+    return {"messages": [AIMessage(content=f"cwd={cwd}")]}
+
+
+builder = StateGraph(MessagesState)
+builder.add_node("probe", _probe)
+builder.add_edge(START, "probe")
+builder.add_edge("probe", END)
+graph = builder.compile()
+'''
+
+
+@pytest.mark.parametrize("extra", [[], ["--no-context"]], ids=["default", "no-context"])
+def test_chat_enters_workspace_so_relative_writes_land_there(tmp_path, monkeypatch, extra):
+    """gh #110: `langstage chat` must `chdir` into the resolved workspace before the turn,
+    the way `run()` does via `_enter_workspace()` — not merely inject a
+    `[Working directory: <workspace>]` line while the process cwd stays the launch dir
+    (the residual gap after #106). Otherwise a BYO agent's `os.getcwd()` and its raw
+    relative file ops disagree with a browser turn: they land in the LAUNCH dir, outside
+    the workspace the file browser shows.
+
+    Drive the real CLI with a probe agent that reports its cwd and writes a relative file,
+    from a launch cwd that is deliberately NOT the workspace, and assert the write landed
+    in the workspace (and the reported cwd equals it). `--no-context` is covered too: the
+    chdir is unconditional, so cwd follows the workspace whether or not the context line is
+    injected. Before the fix, the relative file landed in the launch dir and this fails.
+    """
+    import os
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from langstage.cli import main
+
+    workspace = tmp_path / "ws"
+    launch = tmp_path / "launch"
+    workspace.mkdir()
+    launch.mkdir()
+    probe = tmp_path / "probe_agent.py"
+    probe.write_text(_PROBE_AGENT_SRC, encoding="utf-8")
+
+    # Launch from a clean dir distinct from the workspace, so "landed in the workspace"
+    # is distinguishable from "landed in the launch dir" (the bug).
+    monkeypatch.chdir(launch)
+    result = CliRunner().invoke(
+        main,
+        ["chat", "--agent", f"{probe}:graph", "--workspace", str(workspace), *extra, "go"],
+    )
+    assert result.exit_code == 0, result.output
+
+    # The raw relative write landed IN the workspace, not the launch dir.
+    assert (workspace / "probe_out.txt").exists(), "relative write did not land in the workspace"
+    assert not (launch / "probe_out.txt").exists(), "relative write leaked into the launch dir"
+
+    # And the agent's actual os.getcwd() during the turn WAS the resolved workspace —
+    # the file's contents are that cwd.
+    reported = Path((workspace / "probe_out.txt").read_text(encoding="utf-8"))
+    assert reported.resolve() == workspace.resolve()
+
+    # Nice-to-have (gh #110): the CLI restores the caller's prior cwd after the turn, so a
+    # library/embedded caller of the chat path isn't left with a changed cwd.
+    assert Path(os.getcwd()).resolve() == launch.resolve()
