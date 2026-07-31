@@ -32,20 +32,51 @@ def _env_canonical_first(canonical: str, legacy: str) -> Optional[str]:
     return None
 
 
+_BOOL_TRUE = ("1", "true", "yes", "on")
+_BOOL_FALSE = ("0", "false", "no", "off")
+
+
 def _parse_optional_bool(value: Optional[str]) -> Optional[bool]:
     """Parse an env-var string into an optional bool.
 
     True for '1'/'true'/'yes'/'on', False for '0'/'false'/'no'/'off', None for
-    empty/unrecognized (auto-detect mode).
+    empty/unrecognized (auto-detect mode). Lenient — the strict resolver caster
+    below (:func:`_parse_bool_strict`) is what the ``_ENV`` map uses so a typo
+    degrades with a note instead of being silently swallowed to auto.
     """
     if value is None or value == "":
         return None
     lowered = str(value).strip().lower()
-    if lowered in ("1", "true", "yes", "on"):
+    if lowered in _BOOL_TRUE:
         return True
-    if lowered in ("0", "false", "no", "off"):
+    if lowered in _BOOL_FALSE:
         return False
     return None
+
+
+def _parse_bool_strict(value: Optional[str]) -> Optional[bool]:
+    """Strict bool caster for the resolver's ``_ENV`` map (show_canvas / show_files).
+
+    Recognized tokens -> True/False; a NON-EMPTY unrecognized value RAISES
+    ``ValueError`` so the shared resolver's malformed-value guard degrades it to the
+    default (``None`` = auto) with a one-line stderr note and does NOT credit the env
+    var as the source. This brings the two boolean UI fields in line with the theme
+    enum (#104) and the numeric fields, closing the "invalid value reported as
+    legitimately resolved" gap for these two fields (gh #112). An empty value is an
+    intentional "auto" and stays ``None`` (and never reaches this caster from the env
+    path anyway — ``resolve()`` skips empty env vars).
+    """
+    if value is None or value == "":
+        return None
+    lowered = str(value).strip().lower()
+    if lowered in _BOOL_TRUE:
+        return True
+    if lowered in _BOOL_FALSE:
+        return False
+    raise ValueError(
+        f"expected a boolean (one of: {', '.join(_BOOL_TRUE + _BOOL_FALSE)}), "
+        f"got {value!r}"
+    )
 
 
 # WORKSPACE_ROOT is read by tools.py (bash cwd + file tools) and default_agent.py.
@@ -175,8 +206,11 @@ class AppConfig(HostConfig):
         "run_workflow_prompt": ("DEEPAGENT_RUN_WORKFLOW_PROMPT", str),
         "create_workflow_prompt": ("DEEPAGENT_CREATE_WORKFLOW_PROMPT", str),
         "custom_css": ("DEEPAGENT_CUSTOM_CSS", str),
-        "show_canvas": ("DEEPAGENT_SHOW_CANVAS", _parse_optional_bool),
-        "show_files": ("DEEPAGENT_SHOW_FILES", _parse_optional_bool),
+        # Strict casters so a typo (LANGSTAGE_SHOW_FILES=flase) degrades to the
+        # default with a note and isn't credited to the env var in --show-config,
+        # matching the theme/#104 treatment for these two bool fields (gh #112).
+        "show_canvas": ("DEEPAGENT_SHOW_CANVAS", _parse_bool_strict),
+        "show_files": ("DEEPAGENT_SHOW_FILES", _parse_bool_strict),
         # Canonical LANGSTAGE_TASK_CONCURRENCY wins; DEEPAGENT_TASK_CONCURRENCY is the
         # deprecated fallback (resolved by _env_pair, same as every other key). (gh #102)
         "task_concurrency": ("DEEPAGENT_TASK_CONCURRENCY", int),

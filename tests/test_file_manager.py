@@ -58,6 +58,48 @@ def test_csv_language(workspace):
     assert content["language"] == "csv"
 
 
+# ── preview agrees with the read path on what counts as text (gh #114) ────────
+# The file browser renders via GET /api/files/preview, which classified plain-text
+# .log/.ini/.cfg/.conf as "binary" (download-only) because preview's LANGUAGE_MAP
+# and the read path's is_text_file / TEXT_EXTENSIONS disagreed. They now share
+# TEXT_EXTENSIONS as one source of truth, so both detectors agree.
+
+
+@pytest.mark.parametrize(
+    "name,body",
+    [
+        ("server.log", "INFO server started\nWARN low disk\n"),
+        ("settings.ini", "[server]\nhost = localhost\n"),
+        ("app.cfg", "key = value\n"),
+        ("nginx.conf", "server { listen 80; }\n"),
+    ],
+)
+def test_plain_text_configs_and_logs_preview_as_text_not_binary(tmp_path, name, body):
+    (tmp_path / name).write_text(body)
+    preview = FileManager(tmp_path).preview_file(name)
+    assert preview["preview_type"] == "text", preview
+    assert preview["data"] == body  # content is inlined, not a download-only stub
+    assert "download_url" not in preview
+
+
+def test_preview_and_is_text_file_agree_for_the_regressed_extensions(tmp_path):
+    # The core invariant of gh #114: is_text_file(f) True ⇒ preview shows text.
+    from langstage.file_utils import is_text_file
+
+    for name in ("a.log", "b.ini", "c.cfg", "d.conf"):
+        (tmp_path / name).write_text("plain text\n")
+        assert is_text_file(name) is True
+        assert FileManager(tmp_path).preview_file(name)["preview_type"] == "text"
+
+
+def test_genuinely_binary_file_still_previews_as_binary(tmp_path):
+    # The text-detector union must not loosen the guard for real binaries.
+    (tmp_path / "blob.bin").write_bytes(b"\x00\x01\x02\xff\xfe")
+    preview = FileManager(tmp_path).preview_file("blob.bin")
+    assert preview["preview_type"] == "binary"
+    assert "download_url" in preview
+
+
 def test_sibling_prefix_dir_cannot_escape_workspace(tmp_path):
     """A sibling dir sharing the workspace's name prefix must NOT be reachable.
 

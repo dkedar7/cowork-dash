@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from langstage.config import AppConfig, _parse_optional_bool
+from langstage.config import AppConfig, _parse_bool_strict, _parse_optional_bool
 from langstage.middleware import CanvasMiddleware, agent_uses_canvas_middleware
 
 
@@ -29,6 +29,67 @@ from langstage.middleware import CanvasMiddleware, agent_uses_canvas_middleware
 )
 def test_parse_optional_bool(value, expected):
     assert _parse_optional_bool(value) is expected
+
+
+# --- _parse_bool_strict: the resolver caster that closes gh #112 --------------
+# The two boolean UI fields go through this strict caster in the _ENV map: a
+# recognized token resolves; a NON-EMPTY unrecognized value RAISES so the shared
+# resolver's malformed-value guard degrades it to the default (None) with a note and
+# does NOT credit the env var -- matching the theme/#104 treatment.
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(None, None), ("", None), ("on", True), ("OFF", False), ("1", True), ("0", False)],
+)
+def test_parse_bool_strict_recognized_values(value, expected):
+    assert _parse_bool_strict(value) is expected
+
+
+@pytest.mark.parametrize("value", ["flase", "yep", "garbage", "2", "tru"])
+def test_parse_bool_strict_raises_on_unrecognized_nonempty(value):
+    with pytest.raises(ValueError):
+        _parse_bool_strict(value)
+
+
+def _clear_malformed_env_dedupe():
+    # The shared resolver dedupes its malformed-env note per (var, value) across a
+    # process; clear it so each test can observe its own note regardless of order.
+    from langstage_core.host import config as core_config
+
+    core_config._warned_malformed_env_value.clear()
+
+
+@pytest.mark.parametrize("field", ["SHOW_FILES", "SHOW_CANVAS"])
+def test_invalid_show_flag_degrades_to_none_with_note_not_credited(
+    field, monkeypatch, capsys
+):
+    # gh #112: a typo (LANGSTAGE_SHOW_FILES=flase, meant to HIDE the tab) must NOT be
+    # silently swallowed to auto and credited to the env var in --show-config. It now
+    # degrades to the default (None) with a one-line stderr note, source repointed to
+    # "default" -- exactly the #104 / theme behavior, for these two bool fields.
+    _clear_malformed_env_dedupe()
+    monkeypatch.setenv(f"LANGSTAGE_{field}", "flase")
+    cfg = AppConfig.from_env()  # must NOT raise
+
+    attr = field.lower()
+    assert getattr(cfg, attr) is None  # degraded to auto, not silently mis-set
+    assert cfg.sources[attr] == "default"  # not credited to the rejected env var
+    err = capsys.readouterr().err
+    assert f"LANGSTAGE_{field}='flase'" in err  # names the ignored var + value
+    assert "using default" in err
+
+
+@pytest.mark.parametrize(
+    "raw,expected", [("off", False), ("false", False), ("on", True), ("1", True)]
+)
+def test_valid_show_flag_still_resolves_with_env_source(raw, expected, monkeypatch):
+    # A VALID value must resolve normally with correct source attribution (only the
+    # invalid path degrades).
+    monkeypatch.setenv("LANGSTAGE_SHOW_FILES", raw)
+    cfg = AppConfig.from_env()
+    assert cfg.show_files is expected
+    assert cfg.sources["show_files"] == "env:LANGSTAGE_SHOW_FILES"
 
 
 # --- AppConfig: env + client_dict ---------------------------------------------

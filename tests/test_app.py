@@ -8,6 +8,7 @@ from httpx import AsyncClient, ASGITransport
 from langstage.app import _exposure_warning, _is_loopback_host
 from langstage.config import AppConfig
 from langstage.server.main import create_fastapi_app
+from langstage.server.middleware import _resolve_cors
 
 
 @pytest.fixture
@@ -120,6 +121,80 @@ async def test_delete_session_endpoint(client):
     resp = await client.delete("/api/session/fake-session-id")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+# ── CORS is loopback-only by default, not reflect-any-origin (gh #113) ────────
+# The server used to attach CORSMiddleware with allow_origins=["*"] +
+# allow_credentials=True, which Starlette turns into "reflect ANY origin + allow
+# credentials" — so any website the user visited could make credentialed
+# cross-origin requests to their local server and read the responses (read/write the
+# workspace, drive the agent). CORS is now loopback-only by default, with an explicit
+# LANGSTAGE_CORS_ORIGINS opt-in.
+
+
+@pytest.mark.asyncio
+async def test_cors_does_not_reflect_a_random_site_with_credentials(client):
+    # The core of the fix: a drive-by origin must NOT be handed
+    # access-control-allow-origin for itself (which, with credentials, would let it
+    # read the response cross-origin).
+    resp = await client.get("/api/config", headers={"Origin": "https://evil.example"})
+    assert resp.status_code == 200  # the request itself still succeeds server-side...
+    # ...but the browser gets no grant to read it cross-origin.
+    assert resp.headers.get("access-control-allow-origin") != "https://evil.example"
+    assert resp.headers.get("access-control-allow-origin") is None
+
+
+@pytest.mark.asyncio
+async def test_cors_does_not_reflect_the_null_origin(client):
+    # The `null` origin (sandboxed iframe / file://) was reflected too — also closed.
+    resp = await client.get("/api/config", headers={"Origin": "null"})
+    assert resp.headers.get("access-control-allow-origin") is None
+
+
+@pytest.mark.asyncio
+async def test_cors_preflight_delete_from_random_site_is_not_granted(client):
+    # A state-changing preflight (DELETE) from a hostile origin must not be allowed.
+    resp = await client.options(
+        "/api/files/delete",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "DELETE",
+        },
+    )
+    assert resp.headers.get("access-control-allow-origin") != "https://evil.example"
+
+
+@pytest.mark.asyncio
+async def test_cors_allows_credentialed_access_from_loopback_spa(client):
+    # The same-origin SPA / a local Vite dev server (http://localhost:<port>) is a
+    # loopback origin and DOES get credentialed CORS, so the local UI keeps working.
+    origin = "http://localhost:5173"
+    resp = await client.get("/api/config", headers={"Origin": origin})
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == origin
+    assert resp.headers.get("access-control-allow-credentials") == "true"
+
+
+def test_resolve_cors_default_is_loopback_regex_with_credentials():
+    cfg = _resolve_cors(None)
+    assert "allow_origin_regex" in cfg  # loopback-only, not a "*" allow-list
+    assert cfg["allow_credentials"] is True
+    assert cfg.get("allow_origins") != ["*"]
+
+
+def test_resolve_cors_env_opt_in_honors_specific_origins_with_credentials():
+    cfg = _resolve_cors("https://a.example, https://b.example")
+    assert cfg["allow_origins"] == ["https://a.example", "https://b.example"]
+    assert cfg["allow_credentials"] is True
+    assert "allow_origin_regex" not in cfg
+
+
+def test_resolve_cors_wildcard_opt_in_forces_credentials_off():
+    # If a user opts into "*", it can only ship with credentials OFF (browser rule +
+    # the reflect-any-origin anti-pattern this fix exists to prevent).
+    cfg = _resolve_cors("*")
+    assert cfg["allow_origins"] == ["*"]
+    assert cfg["allow_credentials"] is False
 
 
 # --- Basic Auth tests ---

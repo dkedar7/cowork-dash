@@ -216,6 +216,53 @@ graph = builder.compile()
 '''
 
 
+# ── chat survives a non-cp1252 reply on a cp1252 console (gh #115) ────────────
+
+
+@pytest.mark.parametrize(
+    "prompt,escape",
+    [("\U0001f389", "1f389"), ("A→B", "2192"), ("日本語", "65e5")],
+    ids=["emoji", "arrow", "cjk"],
+)
+def test_chat_does_not_crash_on_cp1252_stdout(prompt, escape):
+    """gh #115: `langstage chat` printed the reply via a bare click.echo, which on a
+    non-UTF-8 console (the default Windows cp1252) raised UnicodeEncodeError as soon as
+    the reply held an emoji/CJK/arrow — losing the answer AND flipping the exit code to
+    a false 1, breaking the documented readiness-gate contract (the agent succeeded).
+
+    CliRunner(charset="cp1252") wraps stdout in a strict cp1252 encoder, faithfully
+    reproducing that console. The reply must now be shown (lossily, backslash-escaped)
+    and the exit code must reflect the agent's real, successful outcome (0)."""
+    from click.testing import CliRunner
+
+    from langstage import cli as cli_mod
+
+    result = CliRunner(charset="cp1252").invoke(
+        cli_mod.main, ["chat", "--demo", "--no-context", prompt]
+    )
+    assert result.exception is None, result.output  # no unhandled UnicodeEncodeError
+    assert result.exit_code == 0  # agent succeeded => exit 0, not a false failure
+    assert result.output.strip()  # the answer reached stdout, not just a traceback
+    assert result.output.isascii()  # degraded to ASCII escapes, printable on cp1252
+    assert escape in result.output.lower()  # the char is shown escaped, not dropped
+
+
+def test_chat_json_path_still_survives_cp1252(monkeypatch):
+    """Control: the --json path was already safe (json.dumps escapes to ASCII); keep it
+    green so the plain-path fix didn't regress it."""
+    import json
+
+    from click.testing import CliRunner
+
+    from langstage import cli as cli_mod
+
+    result = CliRunner(charset="cp1252").invoke(
+        cli_mod.main, ["chat", "--demo", "--no-context", "--json", "\U0001f389"]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["content"]  # parseable, content present
+
+
 @pytest.mark.parametrize("extra", [[], ["--no-context"]], ids=["default", "no-context"])
 def test_chat_enters_workspace_so_relative_writes_land_there(tmp_path, monkeypatch, extra):
     """gh #110: `langstage chat` must `chdir` into the resolved workspace before the turn,
