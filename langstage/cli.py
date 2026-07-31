@@ -12,6 +12,26 @@ from langstage.config import AppConfig
 DEMO_AGENT_SPEC = "langstage_core.demo.stub:graph"
 
 
+def _echo_streamsafe(message: str, *, err: bool = False) -> None:
+    """``click.echo`` that degrades un-encodable characters instead of crashing.
+
+    On a non-UTF-8 console (the default Windows cp1252 for a Western locale),
+    writing agent text that contains an emoji / CJK / arrow raises
+    ``UnicodeEncodeError`` — which both loses the reply and, for ``chat``, flips the
+    exit code from the agent's real (success) outcome to a false ``1``, breaking the
+    documented readiness-gate contract. Encode against the stream's own encoding with
+    ``errors="backslashreplace"`` so an un-encodable char degrades to an ASCII
+    ``\\uXXXX`` escape (the same fidelity the ``--json`` path already gets from
+    ``ensure_ascii``) and the turn completes. (gh #115)
+    """
+    try:
+        click.echo(message, err=err)
+    except UnicodeEncodeError:
+        stream = click.get_text_stream("stderr" if err else "stdout")
+        enc = getattr(stream, "encoding", None) or "utf-8"
+        click.echo(message.encode(enc, errors="backslashreplace").decode(enc), err=err)
+
+
 @click.group(invoke_without_command=True)
 @click.version_option(package_name="langstage", prog_name="langstage")
 @click.option(
@@ -449,10 +469,12 @@ def chat(agent_spec, demo, workspace, as_json, no_context, prompt):
         click.echo(_json.dumps(payload, indent=2))
     else:
         if result.content:
-            click.echo(result.content)
+            # Encoding-tolerant so an emoji/CJK/arrow in the reply can't crash the
+            # turn (and falsely exit 1) on a cp1252 console. (gh #115)
+            _echo_streamsafe(result.content)
         if not result.ok:
             reason = result.error or f"turn did not complete: {result.outcome}"
-            click.echo(f"Error: {reason}", err=True)
+            _echo_streamsafe(f"Error: {reason}", err=True)
 
     if not result.ok:
         raise SystemExit(1)

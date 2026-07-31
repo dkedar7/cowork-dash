@@ -8,6 +8,8 @@ from typing import AsyncGenerator
 
 from watchfiles import awatch, Change
 
+from ..file_utils import TEXT_EXTENSIONS
+
 
 # Extensions → CodeMirror language modes
 LANGUAGE_MAP = {
@@ -124,7 +126,12 @@ class FileManager:
     _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"}
     _HTML_EXTS = {".html", ".htm"}
     _CSV_EXTS = {".csv", ".tsv"}
-    _TEXT_EXTS = set(LANGUAGE_MAP.keys())  # all mapped extensions are text
+    # Union of the two independent text-file allowlists so preview and read agree on
+    # what counts as text: every syntax-highlightable extension (LANGUAGE_MAP) PLUS
+    # everything the read path's is_text_file / TEXT_EXTENSIONS treats as text
+    # (.log/.ini/.cfg/.conf/.env/...). Sharing TEXT_EXTENSIONS is the single source of
+    # truth that keeps the two detectors from drifting apart again (gh #114).
+    _TEXT_EXTS = set(LANGUAGE_MAP.keys()) | TEXT_EXTENSIONS
 
     def read_file(self, path: str) -> dict:
         """Read file content with language detection."""

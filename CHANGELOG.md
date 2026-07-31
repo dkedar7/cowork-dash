@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.13.32 — 2026-07-31
+
+### Security
+- **CORS no longer reflects every origin with credentials on the default local server
+  (gh #113).** The server attached `CORSMiddleware` with `allow_origins=["*"]` **and**
+  `allow_credentials=True`; Starlette turns that combination into "reflect the caller's
+  `Origin` back + `Access-Control-Allow-Credentials: true`", so on the default
+  `langstage run` (localhost, no password) **any web page the user visited could make
+  credentialed cross-origin requests to their local server and read the responses** —
+  read/write the workspace file browser, read chat/config, delegate agent runs, create
+  cron jobs. CORS is now **loopback-only by default**: credentialed access is granted
+  only to `http(s)://localhost`, `127.0.0.1`, or `[::1]` (any port) via
+  `allow_origin_regex`, which is everything the same-origin SPA and a local Vite dev
+  server need — a drive-by origin (`https://evil.example`, the `null` origin of a
+  sandboxed iframe/`file://`) is never reflected, so the browser hands it no grant to
+  read the response. A user who genuinely needs to allow specific cross-origin sites can
+  opt in with `LANGSTAGE_CORS_ORIGINS` (comma-separated); a literal `*` there is honored
+  only with `allow_credentials=False` (the browser forbids `*` + credentials anyway).
+
+### Fixed
+- **Invalid `LANGSTAGE_SHOW_FILES` / `LANGSTAGE_SHOW_CANVAS` values now degrade with a
+  note instead of being silently swallowed to auto and still credited to the env var in
+  `--show-config` (gh #112).** `theme` got this treatment in #104, but the two boolean UI
+  fields went through a lenient parser that mapped **any** unrecognized string to `None`
+  (auto) with no signal — so `LANGSTAGE_SHOW_FILES=flase` (a typo of `false`, meant to
+  **hide** the Files tab) silently **showed** it, and `--show-config` misleadingly
+  reported `[env:LANGSTAGE_SHOW_FILES]` as honored. These two fields now resolve through a
+  **strict** caster: a non-empty unrecognized value is rejected by the shared resolver's
+  malformed-value guard, which emits the one-line `note: ignoring malformed …; using
+  default None instead.` and repoints the recorded source to `[default]` — matching the
+  #104 / `theme` behavior. Valid values (`on`/`off`/`1`/`0`/…) resolve unchanged.
+- **The file-browser preview now renders plain-text `.log` / `.ini` / `.cfg` / `.conf`
+  as text instead of `binary` (download-only) (gh #114).** The preview path
+  (`GET /api/files/preview`, the only files endpoint the SPA calls to view a file) decided
+  "is this text?" from `file_manager.LANGUAGE_MAP`, which omitted those extensions — while
+  the read path's `file_utils.is_text_file` / `TEXT_EXTENSIONS` already treated them as
+  text, so the two detectors contradicted each other (notably for `server.log`, which
+  `--demo`/`run` itself writes). Preview's text set is now the **union** of `LANGUAGE_MAP`
+  and `TEXT_EXTENSIONS`, sharing one source of truth so the two can't drift apart again;
+  the binary guard is unchanged for genuinely non-text files.
+- **`langstage chat` no longer crashes with `UnicodeEncodeError` when the agent reply
+  contains a non-cp1252 character (emoji/CJK/arrows) on a non-UTF-8 console (gh #115).**
+  The reply was printed via a bare `click.echo`, which on the default Windows cp1252
+  console raised as soon as the reply held an emoji/CJK/arrow — **losing the answer** and,
+  worse, flipping the exit code to a false `1` even though the agent succeeded, breaking
+  `chat`'s documented readiness-gate contract (a CI/cron gate saw a failure purely because
+  the correct answer had an emoji in it). The reply is now written with an error-tolerant
+  policy (`errors="backslashreplace"`), so an un-encodable char degrades to an ASCII
+  `\uXXXX` escape (the same fidelity `--json` already got from `ensure_ascii`), the answer
+  is shown, and the exit code reflects the agent's real outcome.
+
 ## 0.13.31 — 2026-07-26
 
 ### Fixed
