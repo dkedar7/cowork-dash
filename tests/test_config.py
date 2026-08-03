@@ -183,3 +183,139 @@ def test_cli_theme_flag_still_hard_rejects():
     )
     assert result.exit_code == 2
     assert "Invalid value for '--theme'" in result.output
+
+
+# ── per-file TOML source provenance (gh #119) ─────────────────────────────────
+# When both a global (~/.langstage/config.toml) and a project langstage.toml
+# contribute, each TOML-sourced field must be attributed to the file that actually
+# supplied its value. A value set ONLY in the global file used to be mislabeled as
+# coming from the project langstage.toml (the deep-merged dict lost per-key
+# provenance), silently defeating the deploy-time "where did this value come from?"
+# guardrail the source column exists for. Fixed at the core layer (langstage-core
+# >= 1.0.32); these pin that the corrected source reaches langstage's config surface.
+
+
+def _global_and_project(tmp_path, monkeypatch, global_toml: str, project_toml: str):
+    """Write a global config.toml + a project langstage.toml, point the resolver at
+    the global via LANGSTAGE_CONFIG_HOME (isolating any real ~/.langstage/config.toml),
+    and chdir into the project. Returns the project dir."""
+    gdir = tmp_path / "global"
+    gdir.mkdir()
+    (gdir / "config.toml").write_text(global_toml)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "langstage.toml").write_text(project_toml)
+    monkeypatch.setenv("LANGSTAGE_CONFIG_HOME", str(gdir))
+    monkeypatch.chdir(proj)
+    return proj
+
+
+def test_global_only_value_attributed_to_global_file_not_project(tmp_path, monkeypatch):
+    _global_and_project(
+        tmp_path,
+        monkeypatch,
+        global_toml='[ui]\nsubtitle = "i-am-from-GLOBAL"\n',   # global sets ONLY subtitle
+        project_toml='[ui]\ntitle = "i-am-from-PROJECT"\n',    # project sets ONLY title
+    )
+    cfg = AppConfig.resolve()
+
+    # Value resolution was always correct (global < project); the SOURCE column is
+    # what #119 is about.
+    assert cfg.subtitle == "i-am-from-GLOBAL"
+    assert cfg.title == "i-am-from-PROJECT"
+    # subtitle came only from the global config.toml -> it must name THAT file, not
+    # the project langstage.toml.
+    assert cfg.sources["subtitle"] == "toml (config.toml)"
+    assert cfg.sources["title"] == "toml (langstage.toml)"
+
+
+def test_show_config_attributes_global_value_to_global_file(tmp_path, monkeypatch):
+    # The fix must reach the actual user surface (`--show-config`), not just resolve().
+    _global_and_project(
+        tmp_path,
+        monkeypatch,
+        global_toml='[ui]\nsubtitle = "i-am-from-GLOBAL"\n',
+        project_toml='[ui]\ntitle = "i-am-from-PROJECT"\n',
+    )
+    result = CliRunner().invoke(cli_mod.main, ["--show-config"])
+
+    assert result.exit_code == 0, result.output
+    # subtitle labeled with the global file it came from...
+    assert re.search(
+        r"subtitle\s*=\s*i-am-from-GLOBAL\s+\[toml \(config\.toml\)\]", result.output
+    ), result.output
+    # ...and the project-only title with the project file.
+    assert re.search(
+        r"title\s*=\s*i-am-from-PROJECT\s+\[toml \(langstage\.toml\)\]", result.output
+    ), result.output
+
+
+# ── unknown / typo'd / misplaced TOML keys are surfaced (gh #120) ─────────────
+# A typo'd key, a key in the wrong section, or an entirely unknown key in
+# langstage.toml is silently dropped by the layered config -- the #1 hand-edit
+# mistake, which `config` / `--show-config` (the "edit it, then verify" step)
+# couldn't catch. Wired at the core layer (langstage-core >= 1.0.32) via
+# HostConfig.unknown_toml_keys(), rendered by describe(); these pin that langstage's
+# config surfaces it.
+
+
+def _isolate_global(tmp_path, monkeypatch):
+    """Point the resolver's global-config lookup at an EMPTY dir so a real
+    ~/.langstage/config.toml can't perturb an exact unknown-keys assertion."""
+    empty = tmp_path / "no-global"
+    empty.mkdir()
+    monkeypatch.setenv("LANGSTAGE_CONFIG_HOME", str(empty))
+
+
+def test_unknown_toml_keys_reported_at_resolve(tmp_path, monkeypatch):
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text(
+        '[ui]\ntitel = "My App"\n[server]\nprot = 9000\n'  # typos: title / port
+    )
+    monkeypatch.chdir(tmp_path)
+    cfg = AppConfig.resolve()
+
+    assert cfg.unknown_toml_keys() == ["server.prot", "ui.titel"]
+    # The fields the typos were meant for stay at their defaults (the edit was dropped).
+    assert cfg.title == "LangStage" and cfg.sources["title"] == "default"
+    assert cfg.port == 8050 and cfg.sources["port"] == "default"
+
+
+def test_config_command_reports_unknown_toml_keys(tmp_path, monkeypatch):
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text(
+        '[ui]\ntitel = "My App"\n[server]\nprot = 9000\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(cli_mod.main, ["config"])
+
+    assert result.exit_code == 0, result.output
+    assert "unknown TOML keys" in result.output
+    assert "ui.titel" in result.output
+    assert "server.prot" in result.output
+
+
+def test_config_json_reports_unknown_toml_keys(tmp_path, monkeypatch):
+    # The machine-readable surface a deploy step asserts on gets them too (gh #120).
+    import json
+
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text('[ui]\ntitel = "My App"\n')
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(cli_mod.main, ["config", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["unknown_toml_keys"] == ["ui.titel"]
+
+
+def test_config_clean_toml_reports_no_unknown_keys(tmp_path, monkeypatch):
+    # A correct file must NOT be flagged -- guards against false positives.
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text('[ui]\ntitle = "My App"\n[server]\nport = 9000\n')
+    monkeypatch.chdir(tmp_path)
+    cfg = AppConfig.resolve()
+
+    assert cfg.unknown_toml_keys() == []
+    result = CliRunner().invoke(cli_mod.main, ["config"])
+    assert "unknown TOML keys" not in result.output

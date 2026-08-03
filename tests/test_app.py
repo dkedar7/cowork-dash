@@ -102,6 +102,24 @@ async def test_files_tree_path_escape_returns_400_not_500(client):
 
 
 @pytest.mark.asyncio
+async def test_files_tree_on_a_file_returns_400_not_500(client):
+    # gh #117: /tree on a FILE (not a directory) used to raise an uncaught
+    # NotADirectoryError -> 500, the only files route that leaked a 500 for a
+    # wrong node type. It must now return a clean 4xx, mirroring read/preview's
+    # IsADirectoryError -> 400 for the inverse case.
+    resp = await client.get("/api/files/tree?path=/hello.py")
+    assert resp.status_code == 400, f"got {resp.status_code}: {resp.text}"
+    assert "hello.py" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_files_tree_on_a_nested_file_returns_400_not_500(client):
+    # Same defect for a nested file path (subdir/nested.txt exists in the fixture).
+    resp = await client.get("/api/files/tree?path=subdir/nested.txt")
+    assert resp.status_code == 400, f"got {resp.status_code}: {resp.text}"
+
+
+@pytest.mark.asyncio
 async def test_canvas_empty(client):
     resp = await client.get("/api/canvas/items")
     assert resp.status_code == 200
