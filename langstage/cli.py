@@ -147,6 +147,11 @@ def config(workspace, as_json):
             for f in _fields(cfg)
         },
         "toml_read_from": [str(p) for p in getattr(cfg, "_toml_paths", [])],
+        # Keys present in langstage.toml that map to no known field (typo'd / misplaced /
+        # unknown). The human `config` / `--show-config` surface these via describe(); a
+        # deploy step asserting on JSON gets them here too, so a silent-dropped edit can be
+        # caught machine-side, not just by eye (gh #120).
+        "unknown_toml_keys": cfg.unknown_toml_keys(),
     }
     click.echo(_json.dumps(payload, indent=2))
 

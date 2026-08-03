@@ -31,6 +31,11 @@ def create_files_router(file_manager: FileManager) -> APIRouter:
             return tree
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail=f"Path not found: {path}")
+        except NotADirectoryError as e:
+            # A FILE was passed where a directory is expected — the mirror-image of
+            # read/preview's IsADirectoryError guard. Return a clean 400 instead of
+            # letting it fall through to a 500 (gh #117).
+            raise HTTPException(status_code=400, detail=str(e))
         except ValueError as e:
             # Path escapes the workspace — the boundary holds (no traversal), but
             # return a clean 400 instead of letting it fall through to a 500.

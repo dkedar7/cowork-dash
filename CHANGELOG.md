@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.13.33 — 2026-08-03
+
+Requires **langstage-core >= 1.0.32** (bumped from >=1.0.9): #119 and #120 are
+fixed at the shared core layer and this release wires the fixes through langstage's
+config surface.
+
+### Fixed
+- **`GET /api/files/tree?path=<a file>` now returns a clean 400 instead of HTTP 500
+  (gh #117).** Passing a *file* path where a directory is expected raised an uncaught
+  `NotADirectoryError` out of the `/tree` route — the only `/api/files/*` route that
+  leaked a 500 for a wrong node type (the boundary always held; it was an
+  error-handling gap). The route now catches `NotADirectoryError` and returns
+  `400 {"detail": "Not a directory: …"}`, the mirror image of `read`/`preview`'s
+  existing `IsADirectoryError` → 400 guard for the inverse case.
+- **`langstage config` / `--show-config` now attributes each TOML value to the file it
+  actually came from (gh #119).** When both a global `~/.langstage/config.toml` and a
+  project `langstage.toml` were present, every TOML-sourced field was labeled
+  `[toml (langstage.toml)]` — even a value that existed *only* in the global file —
+  because the deep-merged config dict had lost per-key provenance. Values always
+  resolved correctly (global < project); only the source column was wrong, silently
+  defeating the deploy-time "where did this value come from?" assertion the column
+  exists for. Fixed in langstage-core 1.0.32's `resolve()` (each key is attributed to
+  the highest-precedence file that actually defines it); langstage inherits it —
+  `subtitle` set only in the global file now reads `[toml (config.toml)]`.
+
+### Added
+- **`langstage config` / `--show-config` now flags unknown / typo'd / misplaced keys in
+  `langstage.toml` (gh #120).** A key that maps to no known field — a typo (`titel`),
+  a key in the wrong section (`prot` under `[server]`), or an entirely unknown
+  table — was silently dropped, so the "edit it, then `langstage config` to verify"
+  workflow couldn't catch the single most common hand-edit mistake (`config` just
+  reported the field as `[default]`). `config` and `--show-config` now print
+  `unknown TOML keys (ignored - a typo or wrong table?): …` (via langstage-core
+  1.0.32's `HostConfig.unknown_toml_keys()`, surfaced by `describe()`), and
+  `config --json` reports them under a new `unknown_toml_keys` field so a deploy step
+  can assert on them machine-side. Keys under the `[configurable]` passthrough table
+  are never flagged. Advisory only (exit 0), matching the legacy-env-var notice.
+
 ## 0.13.32 — 2026-07-31
 
 ### Security
