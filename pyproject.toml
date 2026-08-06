@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langstage"
-version = "0.13.33"
+version = "0.13.34"
 description = "The web stage for your LangGraph agent — AI-powered workspace with streaming, file browser, and canvas"
 readme = "README.md"
 license = "MIT"
@@ -22,7 +22,10 @@ dependencies = [
     # >=1.0.32 for per-file TOML source provenance in resolve() (a global-config value is
     # no longer mislabeled as coming from the project langstage.toml, gh #119) and for
     # HostConfig.unknown_toml_keys() + describe() surfacing typo'd/unknown keys (gh #120).
-    "langstage-core[agui]>=1.0.32",
+    # >=1.0.33 for the resolver's port-range validator: an out-of-range port (70000) from
+    # env / TOML / a Python override now degrades to the default + a note instead of being
+    # silently masked to 16 bits by uvicorn at bind time (gh #123).
+    "langstage-core[agui]>=1.0.33",
     # Any real use of langstage already has langgraph in the env (it is the
     # thing being hosted); declaring it makes `run --demo` work on a bare install.
     "langgraph>=1.0",
@@ -50,7 +53,7 @@ deepagents = [
 # Redundant since AG-UI moved into base deps (core 1.0); kept as a no-op alias so
 # existing `pip install langstage[agui]` scripts/READMEs still resolve.
 agui = [
-    "langstage-core[agui]>=1.0.32",
+    "langstage-core[agui]>=1.0.33",
 ]
 dev = [
     "pytest>=8",

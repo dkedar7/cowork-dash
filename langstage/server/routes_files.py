@@ -84,6 +84,13 @@ def create_files_router(file_manager: FileManager) -> APIRouter:
         """Serve a file for download."""
         try:
             abs_path = file_manager.get_absolute_path(path)
+            # Distinguish "exists but is a directory" (400) from "doesn't exist" (404),
+            # instead of collapsing both into a misleading 404 "File not found" for a
+            # directory that plainly exists. Mirrors read/preview's IsADirectoryError -> 400
+            # and the #117 tree-on-a-file fix — download was the last files route to
+            # misreport a node type (gh #124).
+            if abs_path.is_dir():
+                raise HTTPException(status_code=400, detail=f"Path is a directory: {path}")
             if not abs_path.is_file():
                 raise HTTPException(status_code=404, detail=f"File not found: {path}")
             return FileResponse(str(abs_path), filename=abs_path.name)

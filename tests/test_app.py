@@ -120,6 +120,34 @@ async def test_files_tree_on_a_nested_file_returns_400_not_500(client):
 
 
 @pytest.mark.asyncio
+async def test_files_download_on_a_directory_returns_400_not_false_404(client):
+    # gh #124: download of a DIRECTORY that exists (subdir/ in the fixture) used to
+    # return a misleading 404 "File not found", telling a client an existing path does
+    # not exist. It must now return a clean 400 "Path is a directory", matching
+    # read/preview for the same node-type case (and the #117 tree-on-a-file fix).
+    resp = await client.get("/api/files/download?path=subdir")
+    assert resp.status_code == 400, f"got {resp.status_code}: {resp.text}"
+    assert "directory" in resp.json()["detail"].lower()
+    assert "subdir" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_files_download_missing_path_still_404(client):
+    # A path that truly doesn't exist must STILL be a 404 — the fix distinguishes
+    # is-a-directory from doesn't-exist, it doesn't collapse them the other way.
+    resp = await client.get("/api/files/download?path=nope.txt")
+    assert resp.status_code == 404, f"got {resp.status_code}: {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_files_download_serves_a_real_file(client):
+    # The happy path is unaffected: an existing file downloads with 200.
+    resp = await client.get("/api/files/download?path=hello.py")
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
+    assert resp.text == "print('hello')"
+
+
+@pytest.mark.asyncio
 async def test_canvas_empty(client):
     resp = await client.get("/api/canvas/items")
     assert resp.status_code == 200
