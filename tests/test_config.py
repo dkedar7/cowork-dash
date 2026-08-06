@@ -319,3 +319,139 @@ def test_config_clean_toml_reports_no_unknown_keys(tmp_path, monkeypatch):
     assert cfg.unknown_toml_keys() == []
     result = CliRunner().invoke(cli_mod.main, ["config"])
     assert "unknown TOML keys" not in result.output
+
+
+# ── out-of-range port degrades / hard-errors, never a silent misbind (gh #123) ──
+# An out-of-range integer port (70000) was type-valid so it sailed through the
+# resolver, was advertised by --show-config and the startup banner, and then uvicorn
+# silently masked it to 16 bits (70000 & 0xFFFF == 4464) — the server bound a
+# DIFFERENT port than everything advertised, with no error. Fixed at the core layer
+# (langstage-core >= 1.0.33: resolve()'s port-range validator degrades an out-of-range
+# env/TOML/override value to the default + a note); the interactive --port flag adds a
+# clean hard error via click.IntRange. These pin both halves reach langstage.
+
+
+def _clear_invalid_port_note_dedupe():
+    # The core "ignoring invalid port=..." note dedupes per (field, value) across a
+    # process; clear it so each test observes its own note regardless of test order.
+    from langstage_core.host import config as _core_cfg
+
+    _core_cfg._warned_invalid_value.clear()
+
+
+def test_out_of_range_env_port_degrades_to_default_with_note(monkeypatch, capsys):
+    _clear_invalid_port_note_dedupe()
+    monkeypatch.setenv("LANGSTAGE_PORT", "70000")
+    cfg = AppConfig.from_env()  # must NOT raise
+
+    assert cfg.port == 8050  # degraded to the default, not the masked 4464
+    assert cfg.sources["port"] == "default"  # not credited to the rejected env var
+    err = capsys.readouterr().err
+    assert "ignoring invalid port=70000" in err
+    assert "1-65535" in err  # names the valid range
+
+
+def test_out_of_range_override_port_degrades_to_default(capsys):
+    # The Python/CLI override path (CoworkApp(port=...) -> resolve(overrides=...)) also
+    # degrades — an out-of-range value can never reach uvicorn to be masked.
+    _clear_invalid_port_note_dedupe()
+    cfg = AppConfig.resolve(overrides={"port": 99999})
+
+    assert cfg.port == 8050
+    assert cfg.sources["port"] == "default"
+    assert "ignoring invalid port=99999" in capsys.readouterr().err
+
+
+def test_show_config_reports_degraded_port_as_default(monkeypatch):
+    # --show-config must never present the out-of-range port as a resolved value.
+    _clear_invalid_port_note_dedupe()
+    monkeypatch.setenv("LANGSTAGE_PORT", "70000")
+    result = CliRunner().invoke(cli_mod.main, ["--show-config"])
+
+    assert result.exit_code == 0, result.output
+    assert re.search(r"port\s*=\s*8050\s+\[default\]", result.output), result.output
+    # The rejected 70000 must never appear as a resolved value (a table line is
+    # `port = <value> [source]`). The stderr note names 70000 as the ignored value —
+    # `port=70000 (ValueError...)` — which is fine; only the resolved line must not
+    # show it, so match the value-then-`[source]` shape the note never has.
+    assert not re.search(r"port\s*=\s*70000\s+\[", result.output), result.output
+
+
+def test_valid_env_port_still_resolves_with_source(monkeypatch):
+    # An in-range value must resolve normally with correct source attribution.
+    monkeypatch.setenv("LANGSTAGE_PORT", "9000")
+    cfg = AppConfig.from_env()
+    assert cfg.port == 9000
+    assert cfg.sources["port"] == "env:LANGSTAGE_PORT"
+
+
+def test_cli_port_flag_hard_rejects_out_of_range():
+    # The interactive --port flag hard-errors at parse time (exit 2, before the command
+    # body runs, so no server starts) via click.IntRange — the clean CLI error an
+    # explicit flag deserves, mirroring --theme. Guards the silent-misbind is gone.
+    result = CliRunner().invoke(
+        cli_mod.main, ["run", "--port", "70000", "--demo", "--no-browser"]
+    )
+    assert result.exit_code == 2
+    assert "Invalid value for '--port'" in result.output
+
+
+# ── `langstage config --strict` is a CI gate on a typo'd/unknown TOML key (gh #125) ──
+# `config` surfaces unknown keys but always exits 0, so CI can't gate on a config typo
+# with an exit code. --strict exits 1 when there are unknown keys (0 when clean), so a
+# deploy step can fail the build on a mistyped key. Default (no --strict) stays exit 0.
+
+
+def test_config_strict_exits_nonzero_on_unknown_key(tmp_path, monkeypatch):
+    _isolate_global(tmp_path, monkeypatch)
+    # `prt` is a typo for `port` -> the server would silently bind :8050, not :9000.
+    (tmp_path / "langstage.toml").write_text('[server]\nprt = 9000\nhost = "0.0.0.0"\n')
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(cli_mod.main, ["config", "--strict"])
+
+    assert result.exit_code == 1, result.output
+    # Still prints the human table + the unknown-keys line...
+    assert "server.prt" in result.output
+    # ...plus the strict error summary on stderr.
+    assert "not clean" in result.stderr
+    assert "server.prt" in result.stderr
+
+
+def test_config_strict_exits_zero_on_clean_config(tmp_path, monkeypatch):
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text('[server]\nport = 9000\nhost = "0.0.0.0"\n')
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(cli_mod.main, ["config", "--strict"])
+
+    assert result.exit_code == 0, result.output
+    assert "not clean" not in result.output
+
+
+def test_config_without_strict_exits_zero_even_with_unknown_key(tmp_path, monkeypatch):
+    # The default (no --strict) keeps the "degrade, don't crash" contract: exit 0 even
+    # with a typo, only surfacing it in the output.
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text('[server]\nprt = 9000\n')
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(cli_mod.main, ["config"])
+
+    assert result.exit_code == 0, result.output
+    assert "server.prt" in result.output
+
+
+def test_config_strict_composes_with_json(tmp_path, monkeypatch):
+    # --strict composes with --json: same exit-code contract, JSON still on stdout so a
+    # pipeline can gate coarsely on the exit code or finely on the JSON.
+    import json
+
+    _isolate_global(tmp_path, monkeypatch)
+    (tmp_path / "langstage.toml").write_text('[ui]\ntitel = "My App"\n')
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(cli_mod.main, ["config", "--json", "--strict"])
+
+    assert result.exit_code == 1, result.output
+    # The JSON payload is still emitted (with the unknown key) on stdout; the strict
+    # error summary goes to stderr, so the two don't collide.
+    payload = json.loads(result.stdout[: result.stdout.index("error:")] if "error:" in result.stdout else result.stdout)
+    assert payload["unknown_toml_keys"] == ["ui.titel"]
+    assert "not clean" in result.stderr

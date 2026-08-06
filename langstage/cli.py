@@ -53,7 +53,13 @@ def main(ctx, show_config):
 @click.option("--agent", "-a", "agent_spec", default=None, help="Agent spec (e.g., my_agent.py:agent)")
 @click.option("--demo", is_flag=True, default=False, help="Run with the built-in keyless demo agent - no API key needed")
 @click.option("--workspace", default=None, type=click.Path(), help="Workspace directory")
-@click.option("--port", default=None, type=int, help="Server port (default: 8050)")
+# click.IntRange gives an explicit --port the clean hard error the interactive flag
+# deserves ("Invalid value for '--port': 70000 is not in the range 1<=x<=65535"), at
+# parse time before the server starts — mirroring how --theme hard-rejects. The ambient
+# paths (env / langstage.toml / Python override) instead DEGRADE to the default + a note
+# via langstage-core's resolver validator (>=1.0.33). Either way the out-of-range value
+# is never silently masked to 16 bits by uvicorn and mis-bound (gh #123).
+@click.option("--port", default=None, type=click.IntRange(1, 65535), help="Server port (default: 8050)")
 @click.option("--host", default=None, help="Server host (default: localhost)")
 @click.option("--debug", is_flag=True, default=None, help="Enable debug mode")
 @click.option("--title", default=None, help="App title in header bar")
@@ -123,37 +129,63 @@ def run(agent_spec, demo, workspace, port, host, debug, title, subtitle, welcome
 @click.option("--json", "as_json", is_flag=True, default=False,
               help="Emit the resolved config as JSON (each field's value + source, plus the "
                    "TOML files read) so a deploy step can assert what a container resolved.")
-def config(workspace, as_json):
+@click.option("--strict", is_flag=True, default=False,
+              help="Exit non-zero (1) when the config isn't clean — any unknown/typo'd "
+                   "langstage.toml key (surfaced as `unknown_toml_keys`) — so a CI/deploy "
+                   "step can gate on a config typo with an exit code alone, instead of "
+                   "hand-parsing the JSON. Default (no --strict) always exits 0. Composes "
+                   "with --json (same output, same exit-code contract).")
+@click.pass_context
+def config(ctx, workspace, as_json, strict):
     """Show the resolved configuration: each value, its source, and the
-    env var / langstage.toml key that sets it."""
+    env var / langstage.toml key that sets it.
+
+    Add ``--strict`` to make it a CI gate: exit non-zero if langstage.toml has any
+    unknown/typo'd key, so ``langstage config --strict`` fails the build on a config
+    typo (which otherwise ships a running-but-wrong server silently). (gh #125)"""
     from dataclasses import fields as _fields
 
     overrides = {"workspace_root": workspace} if workspace else None
     cfg = AppConfig.resolve(overrides=overrides)
+    # The unknown/typo'd keys the layered config silently dropped — the gate --strict
+    # fails on. The output below already surfaces them (human via describe(), JSON via
+    # the payload); --strict only adds the exit-code half (gh #125).
+    unknown = cfg.unknown_toml_keys()
+
     if not as_json:
         click.echo(cfg.describe())
-        return
+    else:
+        import json as _json
 
-    import json as _json
+        def _jsonable(v):
+            # Config values are scalars or Paths; keep JSON-native types, stringify the rest.
+            return v if isinstance(v, (str, int, float, bool, type(None))) else str(v)
 
-    def _jsonable(v):
-        # Config values are scalars or Paths; keep JSON-native types, stringify the rest.
-        return v if isinstance(v, (str, int, float, bool, type(None))) else str(v)
+        src = cfg.sources
+        payload = {
+            "config": {
+                f.name: {"value": _jsonable(getattr(cfg, f.name)), "source": src.get(f.name, "default")}
+                for f in _fields(cfg)
+            },
+            "toml_read_from": [str(p) for p in getattr(cfg, "_toml_paths", [])],
+            # Keys present in langstage.toml that map to no known field (typo'd / misplaced /
+            # unknown). The human `config` / `--show-config` surface these via describe(); a
+            # deploy step asserting on JSON gets them here too, so a silent-dropped edit can be
+            # caught machine-side, not just by eye (gh #120).
+            "unknown_toml_keys": unknown,
+        }
+        click.echo(_json.dumps(payload, indent=2))
 
-    src = cfg.sources
-    payload = {
-        "config": {
-            f.name: {"value": _jsonable(getattr(cfg, f.name)), "source": src.get(f.name, "default")}
-            for f in _fields(cfg)
-        },
-        "toml_read_from": [str(p) for p in getattr(cfg, "_toml_paths", [])],
-        # Keys present in langstage.toml that map to no known field (typo'd / misplaced /
-        # unknown). The human `config` / `--show-config` surface these via describe(); a
-        # deploy step asserting on JSON gets them here too, so a silent-dropped edit can be
-        # caught machine-side, not just by eye (gh #120).
-        "unknown_toml_keys": cfg.unknown_toml_keys(),
-    }
-    click.echo(_json.dumps(payload, indent=2))
+    if strict and unknown:
+        n = len(unknown)
+        # A one-line stderr summary (so it survives a `... --json | jq` pipe on stdout),
+        # then a non-zero exit so CI fails the build. ASCII-only (cp1252-safe).
+        click.echo(
+            f"error: config is not clean: {n} unknown TOML key"
+            f"{'s' if n != 1 else ''} ({', '.join(unknown)}). (--strict)",
+            err=True,
+        )
+        ctx.exit(1)
 
 
 @main.command()

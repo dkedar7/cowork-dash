@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.13.34 — 2026-08-06
+
+Requires **langstage-core >= 1.0.33** (bumped from >=1.0.32): #123 is fixed at the
+shared core layer and this release wires it through, adds the `--port` CLI guard, and
+ships two langstage-local fixes (#124, #125).
+
+### Fixed
+- **An out-of-range port (e.g. `70000`, `99999`) is no longer accepted and silently
+  mis-bound (gh #123).** A type-valid but out-of-range integer port sailed through the
+  resolver, was advertised by `--show-config` and the startup banner, and then uvicorn
+  masked it to 16 bits at bind time (`70000 & 0xFFFF == 4464`) — the server listened on a
+  *different* port than everything advertised, with no error. Now: the ambient paths
+  (`LANGSTAGE_PORT` env, `server.port` in `langstage.toml`, a Python `port=` override)
+  **degrade** an out-of-range value to the default `8050` + a one-line stderr `note:` and
+  attribute it to `[default]` (via langstage-core 1.0.33's `resolve()` port-range
+  validator — the same treatment a non-int value already got), and the interactive
+  `--port` flag **hard-errors** cleanly at parse time (`Invalid value for '--port': 70000
+  is not in the range 1<=x<=65535`) via `click.IntRange`, mirroring how `--theme`
+  hard-rejects. Either way the silent misbind is gone.
+- **`GET /api/files/download?path=<a dir>` now returns a clean `400 "Path is a directory"`
+  instead of a misleading `404 "File not found"` (gh #124).** Downloading a directory
+  path collapsed "exists but is a directory" into the same 404 as "doesn't exist",
+  telling a client an existing path was gone. The route now distinguishes the two —
+  `400` for a directory (matching `read`/`preview`, and the #117 `tree`-on-a-file fix),
+  `404` only when the path truly doesn't exist. `download` was the last `/api/files/*`
+  route to misreport a node type.
+
+### Added
+- **`langstage config --strict` — a CI gate on a typo'd/unknown `langstage.toml` key (gh
+  #125).** `config` surfaces unknown keys (via core's `unknown_toml_keys()`) but always
+  exited `0`, so a deploy/CI step couldn't fail the build on a config typo without
+  hand-parsing the JSON. `--strict` exits **1** when the config isn't clean (any unknown
+  key), and **0** when clean, so `langstage config --strict` is a one-line CI gate. The
+  default (no `--strict`) still exits `0`, keeping the "degrade, don't crash on ambient
+  config" contract. Composes with `--json` (same output on stdout, the strict error
+  summary on stderr, same exit-code contract).
+
 ## 0.13.33 — 2026-08-03
 
 Requires **langstage-core >= 1.0.32** (bumped from >=1.0.9): #119 and #120 are
