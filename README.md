@@ -223,9 +223,14 @@ Schedules (cron) REST API: `GET /api/cron`, `POST /api/cron` (create), `DELETE /
 
 ## Configuration
 
-Configuration priority (highest wins): **Python args > CLI args > environment variables > `langstage.toml` > defaults**.
+Configuration priority (highest wins): **Python args > CLI args > environment variables > project `langstage.toml` (nearest at or above the working directory) > global `~/.langstage/config.toml` > defaults**.
 
-Never remember a variable name — print the resolved configuration (each value, its source, and the env var / `langstage.toml` key that sets it):
+There are **two** TOML layers, not one — both are read and deep-merged, with the project file winning key-by-key over the global file:
+
+- **Project `langstage.toml`** — the nearest `langstage.toml` found by walking **up** the directory tree from your current working directory (the way `git` finds `.git`). A file in a *parent* directory therefore configures every `langstage` run beneath it. Discovery is anchored to the working directory, **not** to `--workspace`: a `langstage.toml` sitting inside the workspace directory is *not* read unless that directory is also at or above your cwd.
+- **Global `~/.langstage/config.toml`** — a per-user file applied to every invocation. Set `LANGSTAGE_CONFIG_HOME` to relocate the directory it lives in (the file is always named `config.toml` inside that directory). Legacy `~/.deepagents/config.toml` and `DEEPAGENTS_CONFIG_HOME` are still honored as deprecated fallbacks, as are a project-level `deepagents.toml` and the `DEEPAGENT_*` env vars (the canonical `LANGSTAGE_*` names win when both are set).
+
+Because a parent-directory or global file can silently set things like `auth.password` or `server.host` for *every* invocation under that tree, never assume config comes only from `./langstage.toml`. When a value isn't what you expect, print the resolved configuration (each value, the source **file** it won from, and the env var / `langstage.toml` key that sets it):
 
 ```bash
 langstage --show-config

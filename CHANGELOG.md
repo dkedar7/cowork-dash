@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.35 — 2026-08-08
+
+Docs-only. No code or dependency change.
+
+### Fixed
+- **README Configuration section now documents the *full* config-precedence chain,
+  including the global config layer and `LANGSTAGE_CONFIG_HOME` (gh #128).** The section
+  described a single, cwd-local `langstage.toml`, but `langstage-core`'s resolver
+  (`HostConfig.resolve()`) actually reads **two** deep-merged TOML layers: the global
+  `~/.langstage/config.toml` (directory overridable via `LANGSTAGE_CONFIG_HOME`; legacy
+  `~/.deepagents/config.toml` / `DEEPAGENTS_CONFIG_HOME` still honored) and the project
+  `langstage.toml` — the latter discovered by walking **up** the directory tree from the
+  working directory (not from `--workspace`), and winning key-by-key over the global file.
+  The corrected chain is now stated as **Python args > CLI args > environment variables >
+  project `langstage.toml` (nearest at or above the working directory) > global
+  `~/.langstage/config.toml` > defaults**, with a note that a parent-directory or global
+  file can silently set values like `auth.password` / `server.host`, so `langstage
+  --show-config` is the way to see the resolved source file. This closes the "Related doc
+  gap" flagged when #119 shipped. `tests/test_readme_config_priority.py` is updated to pin
+  the new chain and the global-layer docs.
+
 ## 0.13.34 — 2026-08-06
 
 Requires **langstage-core >= 1.0.33** (bumped from >=1.0.32): #123 is fixed at the
